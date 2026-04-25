@@ -36,6 +36,13 @@ WINE_DEFAULT_DEBUG_CHANNEL(systray);
 #define TRAY_MINIMIZE_ALL 419
 #define TRAY_MINIMIZE_ALL_UNDO 416
 
+#define CLOCK_TIMER_ID  3
+#define CLOCK_WIDTH     80
+
+static HWND hwnd_clock;
+
+#define BALLOON_SHOW_MAX_TIMEOUT 30000
+
 struct notify_data_icon
 {
     /* data for the icon bitmap */
@@ -805,7 +812,7 @@ static void sync_taskbar_buttons(void)
     struct taskbar_button *win;
     int pos = 0, count = 0;
     int width = taskbar_button_width;
-    int right = tray_width - nb_displayed * icon_cx;
+    int right = tray_width - nb_displayed * icon_cx - CLOCK_WIDTH;
     HWND foreground = GetAncestor( GetForegroundWindow(), GA_ROOTOWNER );
 
     if (!enable_taskbar) return;
@@ -1092,9 +1099,30 @@ static void do_show_systray(void)
     tray_width = GetSystemMetrics( SM_CXSCREEN );
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
+
     SetWindowPos( tray_window, 0, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
                   tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
+
+    /* Reposition the clock window relative to the tray icons */
+    if (hwnd_clock)
+    SetWindowPos( hwnd_clock, NULL,
+                  tray_width - CLOCK_WIDTH, 0,
+                  CLOCK_WIDTH, tray_height, SWP_NOZORDER | SWP_NOACTIVATE );
+
     sync_taskbar_buttons();
+}
+
+static void update_clock(void)
+{
+    SYSTEMTIME st;
+    WCHAR buf[32];
+
+    GetLocalTime( &st );
+    swprintf( buf, ARRAY_SIZE(buf), L"%02u:%02u %s",
+              st.wHour % 12 ? st.wHour % 12 : 12,
+              st.wMinute,
+              st.wHour >= 12 ? L"PM" : L"AM" );
+    SetWindowTextW( hwnd_clock, buf );
 }
 
 static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -1177,6 +1205,23 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
 
         return 0;
     }
+
+    case WM_CREATE:
+            hwnd_clock = CreateWindowW( L"STATIC", L"",
+                                        WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE,
+                                        0, 0, CLOCK_WIDTH, tray_height,
+                                        hwnd, (HMENU)0xC10C, 0, NULL );
+            SetTimer( hwnd, CLOCK_TIMER_ID, 1000, NULL );
+            update_clock();
+            break;
+
+        case WM_TIMER:
+            if (wparam == CLOCK_TIMER_ID)
+            {
+                update_clock();
+                return 0;
+            }
+            break;
 
     default:
         return DefWindowProcW( hwnd, msg, wparam, lparam );
