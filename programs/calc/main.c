@@ -172,9 +172,20 @@ static LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
-            mmi->ptMinTrackSize.x = 280;
-            mmi->ptMinTrackSize.y = 380;
-            break;
+            int fixedWidth, fixedHeight;
+            RECT rc = { 0, 0, 300, 420 };
+            
+            /* Move logic below all declarations for C90 compliance */
+            AdjustWindowRect(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
+            
+            fixedWidth = rc.right - rc.left;
+            fixedHeight = rc.bottom - rc.top;
+
+            mmi->ptMinTrackSize.x = fixedWidth;
+            mmi->ptMaxTrackSize.x = fixedWidth;
+            mmi->ptMinTrackSize.y = fixedHeight;
+            mmi->ptMaxTrackSize.y = fixedHeight;
+            return 0;
         }
         case WM_DESTROY: 
             if(hBtnFont) DeleteObject(hBtnFont);
@@ -190,6 +201,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
     WNDCLASSW wc = {0};
     HWND hwnd;
     MSG msg;
+    RECT rc = { 0, 0, 300, 420 };
+    DWORD dwFixedStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
     wc.lpfnWndProc = CalcWndProc;
     wc.hInstance = hInstance;
@@ -199,9 +212,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
     wc.hIcon = LoadIconW(hInstance, (LPCWSTR)IDI_APPLICATION); 
     RegisterClassW(&wc);
 
+    /* Perform calculations after all top-level declarations */
+    AdjustWindowRect(&rc, dwFixedStyle, FALSE);
+
     hwnd = CreateWindowW(L"CalcWnd", L"Calculator",
-        WS_OVERLAPPEDWINDOW, 
-        CW_USEDEFAULT, CW_USEDEFAULT, 300, 420, NULL, NULL, hInstance, NULL);
+        dwFixedStyle, 
+        CW_USEDEFAULT, CW_USEDEFAULT, 
+        rc.right - rc.left, rc.bottom - rc.top, 
+        NULL, NULL, hInstance, NULL);
 
     ShowWindow(hwnd, cmdshow);
     UpdateWindow(hwnd);
