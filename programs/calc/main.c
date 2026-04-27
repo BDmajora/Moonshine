@@ -172,7 +172,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
     wc.hIcon = LoadIconW(hInstance, (LPCWSTR)IDI_APPLICATION); 
     RegisterClassW(&wc);
 
-    HWND hwnd = CreateWindowW(L"CalcWnd", L"Moonshine Calculator",
+    HWND hwnd = CreateWindowW(L"CalcWnd", L"Calculator",
         WS_OVERLAPPEDWINDOW, 
         CW_USEDEFAULT, CW_USEDEFAULT, 280, 380, NULL, NULL, hInstance, NULL);
 
