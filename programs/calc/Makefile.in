@@ -1,0 +1,7 @@
+MODULE    = calc.exe
+IMPORTS   = user32 gdi32 advapi32 comdlg32 shell32 comctl32 uxtheme
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	main.c \
+	calc.rc
