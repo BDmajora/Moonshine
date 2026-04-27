@@ -89,7 +89,7 @@ static void create_controls(HWND hwnd) {
 
     struct { int id; const WCHAR* lbl; } btns[] = {
         {ID_MC, L"MC"}, {ID_MR, L"MR"}, {ID_MS, L"MS"}, {ID_MPLUS, L"M+"}, {ID_MMINUS, L"M-"},
-        {ID_BACK, L"\u2190"}, {ID_CE, L"CE"}, {ID_CLR, L"C"}, {ID_SIGN, L"\u00b1"}, {ID_SQRT, L"\u221a"},
+        {ID_BACK, L"<-"}, {ID_CE, L"CE"}, {ID_CLR, L"C"}, {ID_SIGN, L"\u00b1"}, {ID_SQRT, L"\u221a"},
         {ID_7, L"7"}, {ID_8, L"8"}, {ID_9, L"9"}, {ID_DIV, L"/"}, {ID_PERCENT, L"%"},
         {ID_4, L"4"}, {ID_5, L"5"}, {ID_6, L"6"}, {ID_MUL, L"*"}, {ID_RECIP, L"1/x"},
         {ID_1, L"1"}, {ID_2, L"2"}, {ID_3, L"3"}, {ID_SUB, L"-"}, {ID_EQ, L"="},
