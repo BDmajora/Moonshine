@@ -19,10 +19,6 @@
 #ifndef __WINE_TCHAR_H
 #define __WINE_TCHAR_H
 
-#ifdef __WINESRC__
-#error Wine should not include tchar.h internally
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
