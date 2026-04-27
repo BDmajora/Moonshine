@@ -1,92 +1,109 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <math.h>
+#include <stdlib.h> /* For wcstod */
 #include "calc.h"
 #include "calc_logic.h"
 
-/* Helper to move/resize controls easily */
+/* Global Font Handles */
+HFONT hBtnFont = NULL;
+HFONT hDispFont = NULL;
+
+/* Helper to apply the font to every control */
+BOOL CALLBACK SetFontProc(HWND hwnd, LPARAM lParam) {
+    SendMessageW(hwnd, WM_SETFONT, (WPARAM)lParam, TRUE);
+    return TRUE;
+}
+
 void move_ctrl(HWND hwnd, int id, int x, int y, int w, int h) {
     HWND ctrl = GetDlgItem(hwnd, id);
     if (ctrl) MoveWindow(ctrl, x, y, w, h, TRUE);
 }
 
-/* Helper to update the text box with the current display_str */
 void update_display(HWND hwnd) {
     SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str);
 }
 
-/* Dynamic Layout Engine: Calculates positions based on current window size */
 void update_layout(HWND hwnd) {
     RECT rc;
-    GetClientRect(hwnd, &rc);
-    int win_w = rc.right;
-    int win_h = rc.bottom;
+    int win_w, win_h, margin, gap, display_h, y_start, x_start, grid_w, grid_h, bw, bh, r1y, r2y, r3y, r4y, r5y;
 
-    /* Proportions: Matching your reference layout */
-    int margin = (int)(win_w * 0.02); 
-    int gap    = (int)(win_w * 0.01); 
+    GetClientRect(hwnd, &rc);
+    win_w = rc.right;
+    win_h = rc.bottom;
+
+    margin = (int)(win_w * 0.02); 
+    gap    = (int)(win_w * 0.01); 
+    display_h = (int)(win_h * 0.15); 
     
-    int display_h = (int)(win_h * 0.15); 
     move_ctrl(hwnd, ID_DISPLAY, margin, margin, win_w - (margin * 2), display_h);
 
-    int x_start = margin;
-    int y_start = display_h + (margin * 2);
-    int grid_w  = win_w - (margin * 2);
-    int grid_h  = win_h - y_start - margin;
+    y_start = display_h + (margin * 2);
+    grid_w  = win_w - (margin * 2);
+    grid_h  = win_h - y_start - margin;
 
-    int bw = (grid_w - (gap * 4)) / 5;
-    int bh = (grid_h - (gap * 5)) / 6;
+    bw = (grid_w - (gap * 4)) / 5;
+    bh = (grid_h - (gap * 5)) / 6;
 
-    /* Row 0: Memory */
+    /* RE-CALCULATE FONTS BASED ON NEW SIZE */
+    if (hBtnFont) DeleteObject(hBtnFont);
+    if (hDispFont) DeleteObject(hDispFont);
+
+    hBtnFont = CreateFontW(bh * 0.4, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
+                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
+                           CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Tahoma");
+    
+    hDispFont = CreateFontW(display_h * 0.6, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
+                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
+                            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Tahoma");
+
+    /* Apply Fonts using W suffix */
+    EnumChildWindows(hwnd, (WNDENUMPROC)SetFontProc, (LPARAM)hBtnFont);
+    SendMessageW(GetDlgItem(hwnd, ID_DISPLAY), WM_SETFONT, (WPARAM)hDispFont, TRUE);
+
+    x_start = margin;
     move_ctrl(hwnd, ID_MC,     x_start,          y_start, bw, bh);
     move_ctrl(hwnd, ID_MR,     x_start+(bw+gap), y_start, bw, bh);
     move_ctrl(hwnd, ID_MS,     x_start+(bw+gap)*2, y_start, bw, bh);
     move_ctrl(hwnd, ID_MPLUS,  x_start+(bw+gap)*3, y_start, bw, bh);
     move_ctrl(hwnd, ID_MMINUS, x_start+(bw+gap)*4, y_start, bw, bh);
 
-    /* Row 1: Operations */
-    int r1y = y_start + (bh+gap);
+    r1y = y_start + (bh+gap);
     move_ctrl(hwnd, ID_BACK,   x_start,          r1y, bw, bh);
     move_ctrl(hwnd, ID_CE,     x_start+(bw+gap), r1y, bw, bh);
     move_ctrl(hwnd, ID_CLR,    x_start+(bw+gap)*2, r1y, bw, bh);
     move_ctrl(hwnd, ID_SIGN,   x_start+(bw+gap)*3, r1y, bw, bh);
     move_ctrl(hwnd, ID_SQRT,   x_start+(bw+gap)*4, r1y, bw, bh);
 
-    /* Row 2: 7-9 */
-    int r2y = y_start + (bh+gap)*2;
+    r2y = y_start + (bh+gap)*2;
     move_ctrl(hwnd, ID_7,      x_start,          r2y, bw, bh);
     move_ctrl(hwnd, ID_8,      x_start+(bw+gap), r2y, bw, bh);
     move_ctrl(hwnd, ID_9,      x_start+(bw+gap)*2, r2y, bw, bh);
     move_ctrl(hwnd, ID_DIV,    x_start+(bw+gap)*3, r2y, bw, bh);
     move_ctrl(hwnd, ID_PERCENT,x_start+(bw+gap)*4, r2y, bw, bh);
 
-    /* Row 3: 4-6 */
-    int r3y = y_start + (bh+gap)*3;
+    r3y = y_start + (bh+gap)*3;
     move_ctrl(hwnd, ID_4,      x_start,          r3y, bw, bh);
     move_ctrl(hwnd, ID_5,      x_start+(bw+gap), r3y, bw, bh);
     move_ctrl(hwnd, ID_6,      x_start+(bw+gap)*2, r3y, bw, bh);
     move_ctrl(hwnd, ID_MUL,    x_start+(bw+gap)*3, r3y, bw, bh);
     move_ctrl(hwnd, ID_RECIP,  x_start+(bw+gap)*4, r3y, bw, bh);
 
-    /* Row 4: 1-3 + Equals */
-    int r4y = y_start + (bh+gap)*4;
+    r4y = y_start + (bh+gap)*4;
     move_ctrl(hwnd, ID_1,      x_start,          r4y, bw, bh);
     move_ctrl(hwnd, ID_2,      x_start+(bw+gap), r4y, bw, bh);
     move_ctrl(hwnd, ID_3,      x_start+(bw+gap)*2, r4y, bw, bh);
     move_ctrl(hwnd, ID_SUB,    x_start+(bw+gap)*3, r4y, bw, bh);
     move_ctrl(hwnd, ID_EQ,     x_start+(bw+gap)*4, r4y, bw, (bh*2)+gap);
 
-    /* Row 5: 0, Dot, Add */
-    int r5y = y_start + (bh+gap)*5;
+    r5y = y_start + (bh+gap)*5;
     move_ctrl(hwnd, ID_0,      x_start,          r5y, (bw*2)+gap, bh);
     move_ctrl(hwnd, ID_DOT,    x_start+(bw+gap)*2, r5y, bw, bh);
     move_ctrl(hwnd, ID_ADD,    x_start+(bw+gap)*3, r5y, bw, bh);
 }
 
 static void create_controls(HWND hwnd) {
-    CreateWindowW(L"STATIC", L"0", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_SUNKEN, 
-                 0, 0, 0, 0, hwnd, (HMENU)ID_DISPLAY, NULL, NULL);
-
+    int i;
     struct { int id; const WCHAR* lbl; } btns[] = {
         {ID_MC, L"MC"}, {ID_MR, L"MR"}, {ID_MS, L"MS"}, {ID_MPLUS, L"M+"}, {ID_MMINUS, L"M-"},
         {ID_BACK, L"<-"}, {ID_CE, L"CE"}, {ID_CLR, L"C"}, {ID_SIGN, L"\u00b1"}, {ID_SQRT, L"\u221a"},
@@ -96,7 +113,10 @@ static void create_controls(HWND hwnd) {
         {ID_0, L"0"}, {ID_DOT, L"."}, {ID_ADD, L"+"}
     };
 
-    for(int i=0; i < (int)(sizeof(btns)/sizeof(btns[0])); i++) {
+    CreateWindowW(L"STATIC", L"0", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE | SS_SUNKEN, 
+                 0, 0, 0, 0, hwnd, (HMENU)ID_DISPLAY, NULL, NULL);
+
+    for(i=0; i < (int)(sizeof(btns)/sizeof(btns[0])); i++) {
         CreateWindowW(L"BUTTON", btns[i].lbl, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                      0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)btns[i].id, NULL, NULL);
     }
@@ -133,30 +153,34 @@ static LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     break;
                 case ID_BACK: handle_back(hwnd); break;
                 case ID_SIGN:
-                    if (!error) { set_display(-_wtof(display_str)); update_display(hwnd); }
+                    if (!error) { set_display(-wcstod(display_str, NULL)); update_display(hwnd); }
                     break;
                 case ID_SQRT:
                     if (!error) {
-                        double v = _wtof(display_str);
+                        double v = wcstod(display_str, NULL);
                         if (v < 0) { wcscpy(display_str, L"Invalid input"); error = TRUE; update_display(hwnd); }
                         else { set_display(sqrt(v)); update_display(hwnd); new_input = TRUE; }
                     }
                     break;
                 case ID_MC: memory = 0.0; break;
                 case ID_MR: if (!error) { set_display(memory); update_display(hwnd); new_input = TRUE; } break;
-                case ID_MS: if (!error) { memory = _wtof(display_str); new_input = TRUE; } break;
-                case ID_MPLUS: if (!error) memory += _wtof(display_str); break;
-                case ID_MMINUS: if (!error) memory -= _wtof(display_str); break;
+                case ID_MS: if (!error) { memory = wcstod(display_str, NULL); new_input = TRUE; } break;
+                case ID_MPLUS: if (!error) memory += wcstod(display_str, NULL); break;
+                case ID_MMINUS: if (!error) memory -= wcstod(display_str, NULL); break;
             }
             break;
         }
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
-            mmi->ptMinTrackSize.x = 260;
-            mmi->ptMinTrackSize.y = 320;
+            mmi->ptMinTrackSize.x = 280;
+            mmi->ptMinTrackSize.y = 380;
             break;
         }
-        case WM_DESTROY: PostQuitMessage(0); break;
+        case WM_DESTROY: 
+            if(hBtnFont) DeleteObject(hBtnFont);
+            if(hDispFont) DeleteObject(hDispFont);
+            PostQuitMessage(0); 
+            break;
         default: return DefWindowProcW(hwnd, msg, wp, lp);
     }
     return 0;
@@ -164,6 +188,9 @@ static LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cmdshow) {
     WNDCLASSW wc = {0};
+    HWND hwnd;
+    MSG msg;
+
     wc.lpfnWndProc = CalcWndProc;
     wc.hInstance = hInstance;
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
@@ -172,14 +199,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
     wc.hIcon = LoadIconW(hInstance, (LPCWSTR)IDI_APPLICATION); 
     RegisterClassW(&wc);
 
-    HWND hwnd = CreateWindowW(L"CalcWnd", L"Calculator",
+    hwnd = CreateWindowW(L"CalcWnd", L"Calculator",
         WS_OVERLAPPEDWINDOW, 
-        CW_USEDEFAULT, CW_USEDEFAULT, 280, 380, NULL, NULL, hInstance, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT, 300, 420, NULL, NULL, hInstance, NULL);
 
     ShowWindow(hwnd, cmdshow);
     UpdateWindow(hwnd);
 
-    MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
