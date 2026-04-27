@@ -1,66 +1,115 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <math.h>
 #include "calc.h"
 #include "calc_logic.h"
 
-static HWND make_button(HWND parent, const WCHAR *label, int id, int x, int y, int w, int h) {
-    return CreateWindowW(L"BUTTON", label,
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        x, y, w, h,
-        parent, (HMENU)(INT_PTR)id,
-        (HINSTANCE)GetWindowLongPtrW(parent, GWLP_HINSTANCE), NULL);
+/* Helper to move/resize controls easily */
+void move_ctrl(HWND hwnd, int id, int x, int y, int w, int h) {
+    HWND ctrl = GetDlgItem(hwnd, id);
+    if (ctrl) MoveWindow(ctrl, x, y, w, h, TRUE);
+}
+
+/* Helper to update the text box with the current display_str */
+void update_display(HWND hwnd) {
+    SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str);
+}
+
+/* Dynamic Layout Engine: Calculates positions based on current window size */
+void update_layout(HWND hwnd) {
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    int win_w = rc.right;
+    int win_h = rc.bottom;
+
+    /* Proportions: Matching your reference layout */
+    int margin = (int)(win_w * 0.02); 
+    int gap    = (int)(win_w * 0.01); 
+    
+    int display_h = (int)(win_h * 0.15); 
+    move_ctrl(hwnd, ID_DISPLAY, margin, margin, win_w - (margin * 2), display_h);
+
+    int x_start = margin;
+    int y_start = display_h + (margin * 2);
+    int grid_w  = win_w - (margin * 2);
+    int grid_h  = win_h - y_start - margin;
+
+    int bw = (grid_w - (gap * 4)) / 5;
+    int bh = (grid_h - (gap * 5)) / 6;
+
+    /* Row 0: Memory */
+    move_ctrl(hwnd, ID_MC,     x_start,          y_start, bw, bh);
+    move_ctrl(hwnd, ID_MR,     x_start+(bw+gap), y_start, bw, bh);
+    move_ctrl(hwnd, ID_MS,     x_start+(bw+gap)*2, y_start, bw, bh);
+    move_ctrl(hwnd, ID_MPLUS,  x_start+(bw+gap)*3, y_start, bw, bh);
+    move_ctrl(hwnd, ID_MMINUS, x_start+(bw+gap)*4, y_start, bw, bh);
+
+    /* Row 1: Operations */
+    int r1y = y_start + (bh+gap);
+    move_ctrl(hwnd, ID_BACK,   x_start,          r1y, bw, bh);
+    move_ctrl(hwnd, ID_CE,     x_start+(bw+gap), r1y, bw, bh);
+    move_ctrl(hwnd, ID_CLR,    x_start+(bw+gap)*2, r1y, bw, bh);
+    move_ctrl(hwnd, ID_SIGN,   x_start+(bw+gap)*3, r1y, bw, bh);
+    move_ctrl(hwnd, ID_SQRT,   x_start+(bw+gap)*4, r1y, bw, bh);
+
+    /* Row 2: 7-9 */
+    int r2y = y_start + (bh+gap)*2;
+    move_ctrl(hwnd, ID_7,      x_start,          r2y, bw, bh);
+    move_ctrl(hwnd, ID_8,      x_start+(bw+gap), r2y, bw, bh);
+    move_ctrl(hwnd, ID_9,      x_start+(bw+gap)*2, r2y, bw, bh);
+    move_ctrl(hwnd, ID_DIV,    x_start+(bw+gap)*3, r2y, bw, bh);
+    move_ctrl(hwnd, ID_PERCENT,x_start+(bw+gap)*4, r2y, bw, bh);
+
+    /* Row 3: 4-6 */
+    int r3y = y_start + (bh+gap)*3;
+    move_ctrl(hwnd, ID_4,      x_start,          r3y, bw, bh);
+    move_ctrl(hwnd, ID_5,      x_start+(bw+gap), r3y, bw, bh);
+    move_ctrl(hwnd, ID_6,      x_start+(bw+gap)*2, r3y, bw, bh);
+    move_ctrl(hwnd, ID_MUL,    x_start+(bw+gap)*3, r3y, bw, bh);
+    move_ctrl(hwnd, ID_RECIP,  x_start+(bw+gap)*4, r3y, bw, bh);
+
+    /* Row 4: 1-3 + Equals */
+    int r4y = y_start + (bh+gap)*4;
+    move_ctrl(hwnd, ID_1,      x_start,          r4y, bw, bh);
+    move_ctrl(hwnd, ID_2,      x_start+(bw+gap), r4y, bw, bh);
+    move_ctrl(hwnd, ID_3,      x_start+(bw+gap)*2, r4y, bw, bh);
+    move_ctrl(hwnd, ID_SUB,    x_start+(bw+gap)*3, r4y, bw, bh);
+    move_ctrl(hwnd, ID_EQ,     x_start+(bw+gap)*4, r4y, bw, (bh*2)+gap);
+
+    /* Row 5: 0, Dot, Add */
+    int r5y = y_start + (bh+gap)*5;
+    move_ctrl(hwnd, ID_0,      x_start,          r5y, (bw*2)+gap, bh);
+    move_ctrl(hwnd, ID_DOT,    x_start+(bw+gap)*2, r5y, bw, bh);
+    move_ctrl(hwnd, ID_ADD,    x_start+(bw+gap)*3, r5y, bw, bh);
 }
 
 static void create_controls(HWND hwnd) {
-    CreateWindowW(L"STATIC", L"0",
-        WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_SUNKEN,
-        6, 6, 258, 25,
-        hwnd, (HMENU)ID_DISPLAY, 
-        (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE), NULL);
+    CreateWindowW(L"STATIC", L"0", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_SUNKEN, 
+                 0, 0, 0, 0, hwnd, (HMENU)ID_DISPLAY, NULL, NULL);
 
-    #define BW 60 
-    #define BH 26 
-    #define BG 4  
-    #define X0 6  
-    #define Y0 36 
+    struct { int id; const WCHAR* lbl; } btns[] = {
+        {ID_MC, L"MC"}, {ID_MR, L"MR"}, {ID_MS, L"MS"}, {ID_MPLUS, L"M+"}, {ID_MMINUS, L"M-"},
+        {ID_BACK, L"\u2190"}, {ID_CE, L"CE"}, {ID_CLR, L"C"}, {ID_SIGN, L"\u00b1"}, {ID_SQRT, L"\u221a"},
+        {ID_7, L"7"}, {ID_8, L"8"}, {ID_9, L"9"}, {ID_DIV, L"/"}, {ID_PERCENT, L"%"},
+        {ID_4, L"4"}, {ID_5, L"5"}, {ID_6, L"6"}, {ID_MUL, L"*"}, {ID_RECIP, L"1/x"},
+        {ID_1, L"1"}, {ID_2, L"2"}, {ID_3, L"3"}, {ID_SUB, L"-"}, {ID_EQ, L"="},
+        {ID_0, L"0"}, {ID_DOT, L"."}, {ID_ADD, L"+"}
+    };
 
-    make_button(hwnd, L"MC",   ID_MC,     X0,                Y0,           BW-4, BH);
-    make_button(hwnd, L"MR",   ID_MR,     X0+(BW),           Y0,           BW-4, BH);
-    make_button(hwnd, L"MS",   ID_MS,     X0+(BW*2),         Y0,           BW-4, BH);
-    make_button(hwnd, L"M+",   ID_MPLUS,  X0+(BW*3),         Y0,           BW-4, BH);
-    make_button(hwnd, L"M-",   ID_MMINUS, X0+(BW*4)-BG,      Y0,           BW-4, BH);
-
-    make_button(hwnd, L"\u2190", ID_BACK,  X0,                Y0+(BH+BG),   BW-4, BH);
-    make_button(hwnd, L"CE",   ID_CE,     X0+(BW),           Y0+(BH+BG),   BW-4, BH);
-    make_button(hwnd, L"C",    ID_CLR,    X0+(BW*2),         Y0+(BH+BG),   BW-4, BH);
-    make_button(hwnd, L"\u00b1", ID_SIGN, X0+(BW*3),         Y0+(BH+BG),   BW-4, BH);
-    make_button(hwnd, L"\u221a", ID_SQRT, X0+(BW*4)-BG,      Y0+(BH+BG),   BW-4, BH);
-
-    make_button(hwnd, L"7",    ID_7,      X0,                Y0+(BH+BG)*2, BW-4, BH);
-    make_button(hwnd, L"8",    ID_8,      X0+(BW),           Y0+(BH+BG)*2, BW-4, BH);
-    make_button(hwnd, L"9",    ID_9,      X0+(BW*2),         Y0+(BH+BG)*2, BW-4, BH);
-    make_button(hwnd, L"/",    ID_DIV,    X0+(BW*3),         Y0+(BH+BG)*2, BW-4, BH);
-    make_button(hwnd, L"%",    ID_PERCENT,X0+(BW*4)-BG,      Y0+(BH+BG)*2, BW-4, BH);
-
-    make_button(hwnd, L"4",    ID_4,      X0,                Y0+(BH+BG)*3, BW-4, BH);
-    make_button(hwnd, L"5",    ID_5,      X0+(BW),           Y0+(BH+BG)*3, BW-4, BH);
-    make_button(hwnd, L"6",    ID_6,      X0+(BW*2),         Y0+(BH+BG)*3, BW-4, BH);
-    make_button(hwnd, L"*",    ID_MUL,    X0+(BW*3),         Y0+(BH+BG)*3, BW-4, BH);
-    make_button(hwnd, L"1/x",  ID_RECIP,  X0+(BW*4)-BG,      Y0+(BH+BG)*3, BW-4, BH);
-
-    make_button(hwnd, L"1",    ID_1,      X0,                Y0+(BH+BG)*4, BW-4, BH);
-    make_button(hwnd, L"2",    ID_2,      X0+(BW),           Y0+(BH+BG)*4, BW-4, BH);
-    make_button(hwnd, L"3",    ID_3,      X0+(BW*2),         Y0+(BH+BG)*4, BW-4, BH);
-    make_button(hwnd, L"-",    ID_SUB,    X0+(BW*3),         Y0+(BH+BG)*4, BW-4, BH);
-    make_button(hwnd, L"=",    ID_EQ,     X0+(BW*4)-BG,      Y0+(BH+BG)*4, BW-4, (BH*2)+BG);
-
-    make_button(hwnd, L"0",    ID_0,      X0,                Y0+(BH+BG)*5, (BW*2)-4, BH);
-    make_button(hwnd, L".",    ID_DOT,    X0+(BW*2),         Y0+(BH+BG)*5, BW-4, BH);
-    make_button(hwnd, L"+",    ID_ADD,    X0+(BW*3),         Y0+(BH+BG)*5, BW-4, BH);
+    for(int i=0; i < (int)(sizeof(btns)/sizeof(btns[0])); i++) {
+        CreateWindowW(L"BUTTON", btns[i].lbl, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                     0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)btns[i].id, NULL, NULL);
+    }
 }
 
 static LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+        case WM_CREATE:
+            create_controls(hwnd);
+            break;
+        case WM_SIZE:
+            update_layout(hwnd);
+            break;
         case WM_COMMAND: {
             int id = LOWORD(wp);
             switch (id) {
@@ -76,49 +125,37 @@ static LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case ID_CLR:
                     current = operand = 0.0; op = OP_NONE;
                     has_operand = FALSE; new_input = TRUE; error = FALSE;
-                    wcscpy(display_str, L"0"); SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str);
+                    wcscpy(display_str, L"0"); update_display(hwnd);
                     break;
                 case ID_CE:
                     error = FALSE; wcscpy(display_str, L"0"); new_input = TRUE;
-                    SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str);
+                    update_display(hwnd);
                     break;
                 case ID_BACK: handle_back(hwnd); break;
                 case ID_SIGN:
-                    if (!error) { set_display(-_wtof(display_str)); SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str); }
+                    if (!error) { set_display(-_wtof(display_str)); update_display(hwnd); }
                     break;
                 case ID_SQRT:
                     if (!error) {
                         double v = _wtof(display_str);
-                        if (v < 0) calc_error(hwnd, L"Invalid input");
-                        else { set_display(sqrt(v)); SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str); new_input = TRUE; }
+                        if (v < 0) { wcscpy(display_str, L"Invalid input"); error = TRUE; update_display(hwnd); }
+                        else { set_display(sqrt(v)); update_display(hwnd); new_input = TRUE; }
                     }
                     break;
                 case ID_MC: memory = 0.0; break;
-                case ID_MR: if (!error) { set_display(memory); SetWindowTextW(GetDlgItem(hwnd, ID_DISPLAY), display_str); new_input = TRUE; } break;
+                case ID_MR: if (!error) { set_display(memory); update_display(hwnd); new_input = TRUE; } break;
                 case ID_MS: if (!error) { memory = _wtof(display_str); new_input = TRUE; } break;
                 case ID_MPLUS: if (!error) memory += _wtof(display_str); break;
                 case ID_MMINUS: if (!error) memory -= _wtof(display_str); break;
             }
             break;
         }
-        case WM_KEYDOWN:
-            if (wp == VK_ESCAPE) SendMessageW(hwnd, WM_COMMAND, ID_CLR, 0);
-            if (wp == VK_BACK)   SendMessageW(hwnd, WM_COMMAND, ID_BACK, 0);
-            if (wp == VK_RETURN) SendMessageW(hwnd, WM_COMMAND, ID_EQ, 0);
+        case WM_GETMINMAXINFO: {
+            MINMAXINFO *mmi = (MINMAXINFO *)lp;
+            mmi->ptMinTrackSize.x = 260;
+            mmi->ptMinTrackSize.y = 320;
             break;
-        case WM_CHAR:
-            switch ((WCHAR)wp) {
-                case L'0': case L'1': case L'2': case L'3': case L'4':
-                case L'5': case L'6': case L'7': case L'8': case L'9':
-                    handle_digit(hwnd, (WCHAR)wp); break;
-                case L'.': case L',': handle_dot(hwnd); break;
-                case L'+': handle_op(hwnd, OP_ADD); break;
-                case L'-': handle_op(hwnd, OP_SUB); break;
-                case L'*': handle_op(hwnd, OP_MUL); break;
-                case L'/': handle_op(hwnd, OP_DIV); break;
-                case L'=': do_equals(hwnd); break;
-            }
-            break;
+        }
         case WM_DESTROY: PostQuitMessage(0); break;
         default: return DefWindowProcW(hwnd, msg, wp, lp);
     }
@@ -132,13 +169,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"CalcWnd";
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+    wc.hIcon = LoadIconW(hInstance, (LPCWSTR)IDI_APPLICATION); 
     RegisterClassW(&wc);
 
     HWND hwnd = CreateWindowW(L"CalcWnd", L"Moonshine Calculator",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 276, 226, NULL, NULL, hInstance, NULL);
+        WS_OVERLAPPEDWINDOW, 
+        CW_USEDEFAULT, CW_USEDEFAULT, 280, 380, NULL, NULL, hInstance, NULL);
 
-    create_controls(hwnd);
     ShowWindow(hwnd, cmdshow);
     UpdateWindow(hwnd);
 
@@ -147,5 +184,5 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int cm
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    return msg.wParam;
+    return (int)msg.wParam;
 }
