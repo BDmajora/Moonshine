@@ -1,11 +1,14 @@
 #include <windows.h>
 #include "solitaire.h"
 
-/* Global Card Dimensions */
 int cardW, cardHeight;
 
+/* We'll use 620x420. Anything smaller often gets blocked by 
+   the width of the Title Bar buttons (Min/Max/Close). */
+#define TARGET_CLIENT_WIDTH  620
+#define TARGET_CLIENT_HEIGHT 420
+
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    /* All variables declared at the top of the block for C90 compliance */
     PAINTSTRUCT ps;
     HDC hdc;
     RECT rc;
@@ -15,34 +18,30 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
             if (!cdtInit(&cardW, &cardHeight)) {
-                MessageBoxW(hwnd, L"Failed to load cards.dll logic", L"Error", MB_ICONERROR);
+                MessageBoxW(hwnd, L"Failed to load cards.dll", L"Error", MB_ICONERROR);
                 return -1;
             }
             InitGame();
             break;
 
-        /* Fix: Prevents the "white flash" flicker when resizing or updating */
         case WM_ERASEBKGND:
             return 1; 
 
         case WM_PAINT:
             hdc = BeginPaint(hwnd, &ps);
             GetClientRect(hwnd, &rc);
-            
-            /* Optimized Background Draw */
-            /* Fixed: Declaration of hbr moved to top of function */
             hbr = CreateSolidBrush(SOL_BG_COLOR);
             FillRect(hdc, &rc, hbr);
             DeleteObject(hbr); 
-            
             DrawBoard(hdc, rc.right, rc.bottom);
             EndPaint(hwnd, &ps);
             break;
 
         case WM_GETMINMAXINFO:
+            /* Crucial: We must allow the window to go smaller than 640 */
             mmi = (MINMAXINFO *)lp;
-            mmi->ptMinTrackSize.x = 640;
-            mmi->ptMinTrackSize.y = 480;
+            mmi->ptMinTrackSize.x = 400; 
+            mmi->ptMinTrackSize.y = 300;
             break;
 
         case WM_COMMAND:
@@ -68,6 +67,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
     WNDCLASSW wc = {0};
     HWND hwnd;
     MSG msg;
+    RECT rc;
+    /* Use a fixed style to prevent accidental stretching */
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = TARGET_CLIENT_WIDTH;
+    rc.bottom = TARGET_CLIENT_HEIGHT;
+
+    /* Logic: Calculate window size including the Menu (TRUE) */
+    AdjustWindowRect(&rc, dwStyle, TRUE);
 
     wc.lpfnWndProc = SolWndProc;
     wc.hInstance = hInst;
@@ -75,15 +85,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
     wc.lpszClassName = L"SolitaireWnd";
     wc.lpszMenuName = MAKEINTRESOURCEW(IDR_MAINMENU);
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    
-    /* Use the icon from your .rc file */
     wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
 
     RegisterClassW(&wc);
 
     hwnd = CreateWindowW(L"SolitaireWnd", L"Solitaire",
-                         WS_OVERLAPPEDWINDOW, 
-                         CW_USEDEFAULT, CW_USEDEFAULT, 800, 600, 
+                         dwStyle, 
+                         CW_USEDEFAULT, CW_USEDEFAULT, 
+                         rc.right - rc.left, rc.bottom - rc.top, 
                          NULL, NULL, hInst, NULL);
 
     ShowWindow(hwnd, show);
