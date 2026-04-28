@@ -34,7 +34,6 @@ void InitGame(void) {
 }
 
 void DrawBoard(HDC hdc, int width, int height) {
-    /* C90: All declarations must be at the top of the function */
     int i, j, x, current_y, s;
     WCHAR statusText[64];
     RECT rcStatus;
@@ -42,23 +41,24 @@ void DrawBoard(HDC hdc, int width, int height) {
     HPEN hPen, oldPen;
     HFONT hFont, hOldFont;
 
-    /* --- 1. TOP ROW: STOCK (3D Stacking Effect) --- */
+    /* --- 1. TOP ROW: STOCK (3D Stacking Logic) --- */
     if (stock_count > 0) {
-        /* Draw 2 offset 'depth' cards before the top card */
+        /* Draw 2 cards offset up-and-left to create the depth sliver */
         for(s = 2; s > 0; s--) {
-            cdtDraw(hdc, X_MARGIN + s, Y_MARGIN + s, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
+            cdtDraw(hdc, X_MARGIN - s, Y_MARGIN - s, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
         }
+        /* Draw the actual top card at the margin so it aligns with the columns */
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
     } else {
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* Waste Pile (Column 1) */
+    /* Waste Pile */
     if (waste_count > 0) {
         cdtDraw(hdc, X_MARGIN + X_SPACING, Y_MARGIN, 0, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* --- 2. TOP ROW: FOUNDATIONS (Columns 3-6) --- */
+    /* --- 2. TOP ROW: FOUNDATIONS --- */
     for (i = 0; i < 4; i++) {
         x = X_MARGIN + ((3 + i) * X_SPACING);
         if (foundation_count[i] == 0)
@@ -67,7 +67,7 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, x, Y_MARGIN, 0, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* --- 3. TABLEAU: THE 7 COLUMNS --- */
+    /* --- 3. TABLEAU --- */
     for (i = 0; i < 7; i++) {
         x = X_MARGIN + (i * X_SPACING);
         if (tableau_count[i] == 0) {
@@ -88,7 +88,7 @@ void DrawBoard(HDC hdc, int width, int height) {
 
     /* --- 4. STATUS BAR --- */
     rcStatus.left = 0;
-    rcStatus.top = height - 18;
+    rcStatus.top = height - 19; 
     rcStatus.right = width;
     rcStatus.bottom = height;
 
@@ -96,15 +96,14 @@ void DrawBoard(HDC hdc, int width, int height) {
     FillRect(hdc, &rcStatus, hbrWhite);
     DeleteObject(hbrWhite);
 
-    /* Grey separator line for depth */
     hPen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160));
     oldPen = SelectObject(hdc, hPen);
-    MoveToEx(hdc, 0, height - 18, NULL);
-    LineTo(hdc, width, height - 18);
+    MoveToEx(hdc, 0, height - 19, NULL);
+    LineTo(hdc, width, height - 19);
     SelectObject(hdc, oldPen);
     DeleteObject(hPen);
 
-    hFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
+    hFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
                         ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
                         DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Tahoma");
     
@@ -112,7 +111,7 @@ void DrawBoard(HDC hdc, int width, int height) {
     SetBkMode(hdc, TRANSPARENT);
     
     wsprintfW(statusText, L"Score: 0   Time: 0");
-    TextOutW(hdc, width - 125, height - 16, statusText, lstrlenW(statusText));
+    TextOutW(hdc, width - 120, height - 17, statusText, lstrlenW(statusText));
 
     SelectObject(hdc, hOldFont);
     DeleteObject(hFont);

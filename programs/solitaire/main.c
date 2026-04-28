@@ -3,18 +3,17 @@
 
 int cardW, cardHeight;
 
-/* We'll calculate the exact width based on XP spacing: 
-   (7 columns * 82px spacing) - (11px gap between last cards) + (Margins) */
+/* Updated height to 400 to snap perfectly to the bottom status bar */
 #define X_MARGIN        12
 #define X_SPACING       82
-#define TARGET_CLIENT_HEIGHT 412 
+#define TARGET_CLIENT_HEIGHT 385
 
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     PAINTSTRUCT ps;
     HDC hdc;
     RECT rc;
     MINMAXINFO *mmi;
-    HBRUSH hbr; // Declared at top to satisfy C90
+    HBRUSH hbr; 
 
     switch (msg) {
         case WM_CREATE:
@@ -32,7 +31,7 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             hdc = BeginPaint(hwnd, &ps);
             GetClientRect(hwnd, &rc);
             
-            /* Logic: Create brush and fill background */
+            /* Move hbr here to avoid C90 warning */
             hbr = CreateSolidBrush(SOL_BG_COLOR);
             FillRect(hdc, &rc, hbr);
             DeleteObject(hbr); 
@@ -42,7 +41,6 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_GETMINMAXINFO:
-            /* Crucial: We must allow the window to go smaller than 640 */
             mmi = (MINMAXINFO *)lp;
             mmi->ptMinTrackSize.x = 400; 
             mmi->ptMinTrackSize.y = 300;
@@ -72,11 +70,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
     HWND hwnd;
     MSG msg;
     RECT rc;
-    /* Use a fixed style to prevent accidental stretching */
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
-    /* Logic: Calculate width to fit 7 columns perfectly.
-       6 full spacings + 1 card width + 2 margins. */
     int calculatedWidth = (X_MARGIN * 2) + (6 * X_SPACING) + 71; 
 
     rc.left = 0;
@@ -84,7 +79,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
     rc.right = calculatedWidth;
     rc.bottom = TARGET_CLIENT_HEIGHT;
 
-    /* Logic: Calculate window size including the Menu (TRUE) */
     AdjustWindowRect(&rc, dwStyle, TRUE);
 
     wc.lpfnWndProc = SolWndProc;
