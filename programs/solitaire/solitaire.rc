@@ -35,7 +35,7 @@ BEGIN
         BEGIN
             VALUE "FileDescription",  "Moonshine Solitaire"
             VALUE "FileVersion",      "1.0"
-            VALUE "InternalName",     "solitaire"
+            VALUE "InternalName",      "solitaire"
             VALUE "OriginalFilename", "solitaire.exe"
             VALUE "ProductName",      "Moonshine Solitaire"
             VALUE "ProductVersion",   "1.0"
@@ -46,3 +46,4 @@ BEGIN
         VALUE "Translation", 0x409, 0x4b0
     END
 END
+/* Ensure there is a blank line below this comment to avoid compiler EOF warnings */

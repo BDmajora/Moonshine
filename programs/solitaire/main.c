@@ -5,14 +5,15 @@
 int cardW, cardHeight;
 
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    /* All variables declared at the top of the block for C90 compliance */
     PAINTSTRUCT ps;
     HDC hdc;
     RECT rc;
     MINMAXINFO *mmi;
+    HBRUSH hbr; 
 
     switch (msg) {
         case WM_CREATE:
-            /* Initialize the cards.dll logic from your cards.c */
             if (!cdtInit(&cardW, &cardHeight)) {
                 MessageBoxW(hwnd, L"Failed to load cards.dll logic", L"Error", MB_ICONERROR);
                 return -1;
@@ -20,18 +21,26 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InitGame();
             break;
 
+        /* Fix: Prevents the "white flash" flicker when resizing or updating */
+        case WM_ERASEBKGND:
+            return 1; 
+
         case WM_PAINT:
             hdc = BeginPaint(hwnd, &ps);
             GetClientRect(hwnd, &rc);
-            /* XP Green Fill */
-            FillRect(hdc, &rc, CreateSolidBrush(SOL_BG_COLOR));
+            
+            /* Optimized Background Draw */
+            /* Fixed: Declaration of hbr moved to top of function */
+            hbr = CreateSolidBrush(SOL_BG_COLOR);
+            FillRect(hdc, &rc, hbr);
+            DeleteObject(hbr); 
+            
             DrawBoard(hdc, rc.right, rc.bottom);
             EndPaint(hwnd, &ps);
             break;
 
         case WM_GETMINMAXINFO:
             mmi = (MINMAXINFO *)lp;
-            /* Lock the floor so the cards don't overlap awkwardly */
             mmi->ptMinTrackSize.x = 640;
             mmi->ptMinTrackSize.y = 480;
             break;
@@ -62,10 +71,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
 
     wc.lpfnWndProc = SolWndProc;
     wc.hInstance = hInst;
-    wc.hbrBackground = NULL; /* We handle background in WM_PAINT */
+    wc.hbrBackground = NULL; 
     wc.lpszClassName = L"SolitaireWnd";
     wc.lpszMenuName = MAKEINTRESOURCEW(IDR_MAINMENU);
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+    
+    /* Use the icon from your .rc file */
+    wc.hIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
 
     RegisterClassW(&wc);
 

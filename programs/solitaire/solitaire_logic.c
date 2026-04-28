@@ -3,45 +3,79 @@
 #include <time.h>
 #include "solitaire.h"
 
-/* Simplified representation of the 7 tableau piles */
+/* XP Dimensions & Spacing */
+#define X_MARGIN        12
+#define Y_MARGIN        12
+#define X_SPACING       82   
+#define TAB_Y_TOP       110  
+#define STACK_FACE_DOWN 3    
+#define STACK_FACE_UP   15   
+
+#define ID_GHOST_CARD   52   
+#define ID_CARD_BACK    54   
+
 CARD_STACK tableau[7][20]; 
 int tableau_count[7];
+
+int foundation_count[4] = {0, 0, 0, 0};
+int stock_count = 24;
+int waste_count = 0;
 
 void InitGame(void) {
     int i, j;
     srand((unsigned int)time(NULL));
     
-    /* Reset and "Deal" logic */
     for (i = 0; i < 7; i++) {
         tableau_count[i] = i + 1;
         for (j = 0; j <= i; j++) {
-            /* Random card for demo purposes */
             tableau[i][j].card_id = rand() % 52;
-            tableau[i][j].face_up = (j == i);
+            tableau[i][j].face_up = (j == i); 
         }
     }
 }
 
 void DrawBoard(HDC hdc, int width, int height) {
-    int i, j;
-    int margin_x = 20;
-    int margin_y = 20;
-    int spacing_x = (width - 40) / 7;
-    int stack_offset = 15;
+    /* FIXED: All variables declared at the start of the function for C90 */
+    int i, j, x, current_y;
 
-    /* Draw the Tableau (the 7 columns) */
-    for (i = 0; i < 7; i++) {
-        for (j = 0; j < tableau_count[i]; j++) {
-            int x = margin_x + (i * spacing_x);
-            int y = margin_y + 120 + (j * stack_offset);
-            
-            if (tableau[i][j].face_up)
-                cdtDraw(hdc, x, y, tableau[i][j].card_id, MODE_FACEUP, SOL_BG_COLOR);
-            else
-                cdtDraw(hdc, x, y, CARD_BACK_WEAVE1, MODE_FACEDOWN, SOL_BG_COLOR);
-        }
+    /* --- 1. TOP ROW: STOCK & WASTE --- */
+    if (stock_count > 0)
+        cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
+    else
+        cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
+
+    if (waste_count > 0) {
+        cdtDraw(hdc, X_MARGIN + X_SPACING, Y_MARGIN, 0, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* Draw the Stock Pile placeholder */
-    cdtDraw(hdc, margin_x, margin_y, CARD_BACK_WEAVE1, MODE_FACEDOWN, SOL_BG_COLOR);
+    /* --- 2. TOP ROW: FOUNDATIONS --- */
+    for (i = 0; i < 4; i++) {
+        x = X_MARGIN + ((3 + i) * X_SPACING);
+        
+        if (foundation_count[i] == 0)
+            cdtDraw(hdc, x, Y_MARGIN, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
+        else
+            cdtDraw(hdc, x, Y_MARGIN, rand() % 52, MODE_FACEUP, SOL_BG_COLOR);
+    }
+
+    /* --- 3. TABLEAU: THE 7 COLUMNS --- */
+    for (i = 0; i < 7; i++) {
+        x = X_MARGIN + (i * X_SPACING);
+        
+        if (tableau_count[i] == 0) {
+            cdtDraw(hdc, x, TAB_Y_TOP, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
+            continue;
+        }
+
+        current_y = TAB_Y_TOP;
+        for (j = 0; j < tableau_count[i]; j++) {
+            if (tableau[i][j].face_up) {
+                cdtDraw(hdc, x, current_y, tableau[i][j].card_id, MODE_FACEUP, SOL_BG_COLOR);
+                current_y += STACK_FACE_UP;
+            } else {
+                cdtDraw(hdc, x, current_y, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
+                current_y += STACK_FACE_DOWN;
+            }
+        }
+    }
 }
