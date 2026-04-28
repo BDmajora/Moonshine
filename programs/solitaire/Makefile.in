@@ -1,0 +1,11 @@
+MODULE      = solitaire.exe
+IMPORTS     = cards user32 gdi32 advapi32 comctl32
+EXTRADLLFLAGS = -mwindows -municode
+
+# This line is the missing link
+EXTRAINCL = -I$(top_srcdir)/dlls/cards
+
+SOURCES = \
+    main.c \
+    solitaire_logic.c \
+    solitaire.rc
