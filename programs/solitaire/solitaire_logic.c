@@ -3,7 +3,7 @@
 #include <time.h>
 #include "solitaire.h"
 
-/* XP Dimensions & Spacing */
+/* --- Constants for XP Dimensions & Spacing --- */
 #define X_MARGIN        12
 #define Y_MARGIN        12
 #define X_SPACING       82   
@@ -14,6 +14,7 @@
 #define ID_GHOST_CARD   52   
 #define ID_CARD_BACK    54   
 
+/* --- Global Game State --- */
 CARD_STACK tableau[7][20]; 
 int tableau_count[7];
 int foundation_count[4] = {0, 0, 0, 0};
@@ -33,18 +34,20 @@ void InitGame(void) {
 }
 
 void DrawBoard(HDC hdc, int width, int height) {
-    int i, j, x, current_y;
+    /* C90: All declarations must be at the top of the function */
+    int i, j, x, current_y, s;
     WCHAR statusText[64];
     RECT rcStatus;
     HBRUSH hbrWhite;
+    HPEN hPen, oldPen;
     HFONT hFont, hOldFont;
 
-    /* --- 1. TOP ROW: STOCK (3D Effect descending to bottom-right) --- */
+    /* --- 1. TOP ROW: STOCK (3D Stacking Effect) --- */
     if (stock_count > 0) {
-        /* Draw the background "depth" cards first */
-        cdtDraw(hdc, X_MARGIN + 2, Y_MARGIN + 2, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
-        cdtDraw(hdc, X_MARGIN + 1, Y_MARGIN + 1, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
-        /* Draw the top card last so it sits on top of the offsets */
+        /* Draw 2 offset 'depth' cards before the top card */
+        for(s = 2; s > 0; s--) {
+            cdtDraw(hdc, X_MARGIN + s, Y_MARGIN + s, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
+        }
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
     } else {
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
@@ -83,9 +86,9 @@ void DrawBoard(HDC hdc, int width, int height) {
         }
     }
 
-    /* --- 4. STATUS BAR (Slim 15px Height) --- */
+    /* --- 4. STATUS BAR --- */
     rcStatus.left = 0;
-    rcStatus.top = height - 15;
+    rcStatus.top = height - 18;
     rcStatus.right = width;
     rcStatus.bottom = height;
 
@@ -93,19 +96,23 @@ void DrawBoard(HDC hdc, int width, int height) {
     FillRect(hdc, &rcStatus, hbrWhite);
     DeleteObject(hbrWhite);
 
-    /* Create Bold Tahoma Font */
-    hFont = CreateFontW(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
+    /* Grey separator line for depth */
+    hPen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160));
+    oldPen = SelectObject(hdc, hPen);
+    MoveToEx(hdc, 0, height - 18, NULL);
+    LineTo(hdc, width, height - 18);
+    SelectObject(hdc, oldPen);
+    DeleteObject(hPen);
+
+    hFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
                         ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
                         DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Tahoma");
     
     hOldFont = (HFONT)SelectObject(hdc, hFont);
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(0, 0, 0));
     
     wsprintfW(statusText, L"Score: 0   Time: 0");
-    
-    /* Draw text centered vertically in the 15px bar */
-    TextOutW(hdc, width - 140, height - 14, statusText, lstrlenW(statusText));
+    TextOutW(hdc, width - 125, height - 16, statusText, lstrlenW(statusText));
 
     SelectObject(hdc, hOldFont);
     DeleteObject(hFont);

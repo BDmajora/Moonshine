@@ -3,17 +3,18 @@
 
 int cardW, cardHeight;
 
-/* We'll use 620x420. Anything smaller often gets blocked by 
-   the width of the Title Bar buttons (Min/Max/Close). */
-#define TARGET_CLIENT_WIDTH  620
-#define TARGET_CLIENT_HEIGHT 420
+/* We'll calculate the exact width based on XP spacing: 
+   (7 columns * 82px spacing) - (11px gap between last cards) + (Margins) */
+#define X_MARGIN        12
+#define X_SPACING       82
+#define TARGET_CLIENT_HEIGHT 412 
 
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     PAINTSTRUCT ps;
     HDC hdc;
     RECT rc;
     MINMAXINFO *mmi;
-    HBRUSH hbr; 
+    HBRUSH hbr; // Declared at top to satisfy C90
 
     switch (msg) {
         case WM_CREATE:
@@ -30,9 +31,12 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_PAINT:
             hdc = BeginPaint(hwnd, &ps);
             GetClientRect(hwnd, &rc);
+            
+            /* Logic: Create brush and fill background */
             hbr = CreateSolidBrush(SOL_BG_COLOR);
             FillRect(hdc, &rc, hbr);
             DeleteObject(hbr); 
+            
             DrawBoard(hdc, rc.right, rc.bottom);
             EndPaint(hwnd, &ps);
             break;
@@ -71,9 +75,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show) {
     /* Use a fixed style to prevent accidental stretching */
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
+    /* Logic: Calculate width to fit 7 columns perfectly.
+       6 full spacings + 1 card width + 2 margins. */
+    int calculatedWidth = (X_MARGIN * 2) + (6 * X_SPACING) + 71; 
+
     rc.left = 0;
     rc.top = 0;
-    rc.right = TARGET_CLIENT_WIDTH;
+    rc.right = calculatedWidth;
     rc.bottom = TARGET_CLIENT_HEIGHT;
 
     /* Logic: Calculate window size including the Menu (TRUE) */
