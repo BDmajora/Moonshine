@@ -6,7 +6,7 @@ int cardW, cardHeight;
 /* Updated height to 400 to snap perfectly to the bottom status bar */
 #define X_MARGIN        12
 #define X_SPACING       82
-#define TARGET_CLIENT_HEIGHT 385
+#define TARGET_CLIENT_HEIGHT 383
 
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     PAINTSTRUCT ps;

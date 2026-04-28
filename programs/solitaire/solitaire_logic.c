@@ -5,11 +5,15 @@
 
 /* --- Constants for XP Dimensions & Spacing --- */
 #define X_MARGIN        12
-#define Y_MARGIN        12
-#define X_SPACING       82   
-#define TAB_Y_TOP       110  
+#define Y_MARGIN        6    /* Moved top row up */
+#define X_SPACING       79   
+#define TAB_Y_TOP       108  /* Tightened gap between rows */
 #define STACK_FACE_DOWN 3    
-#define STACK_FACE_UP   15   
+#define STACK_FACE_UP   20   
+
+/* Reverted to original XP sizes */
+#define STATUS_BAR_HEIGHT 16 
+#define STATUS_FONT_SIZE  15
 
 #define ID_GHOST_CARD   52   
 #define ID_CARD_BACK    54   
@@ -36,24 +40,21 @@ void InitGame(void) {
 void DrawBoard(HDC hdc, int width, int height) {
     int i, j, x, current_y, s;
     WCHAR statusText[64];
-    RECT rcStatus;
+    RECT rcStatus, rcText;
     HBRUSH hbrWhite;
     HPEN hPen, oldPen;
     HFONT hFont, hOldFont;
 
-    /* --- 1. TOP ROW: STOCK (3D Stacking Logic) --- */
+    /* --- 1. TOP ROW: STOCK & WASTE --- */
     if (stock_count > 0) {
-        /* Draw 2 cards offset up-and-left to create the depth sliver */
         for(s = 2; s > 0; s--) {
             cdtDraw(hdc, X_MARGIN - s, Y_MARGIN - s, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
         }
-        /* Draw the actual top card at the margin so it aligns with the columns */
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_CARD_BACK, MODE_FACEDOWN, SOL_BG_COLOR);
     } else {
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* Waste Pile */
     if (waste_count > 0) {
         cdtDraw(hdc, X_MARGIN + X_SPACING, Y_MARGIN, 0, MODE_FACEUP, SOL_BG_COLOR);
     }
@@ -74,6 +75,7 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, x, TAB_Y_TOP, ID_GHOST_CARD, MODE_FACEUP, SOL_BG_COLOR);
             continue;
         }
+        
         current_y = TAB_Y_TOP;
         for (j = 0; j < tableau_count[i]; j++) {
             if (tableau[i][j].face_up) {
@@ -88,7 +90,7 @@ void DrawBoard(HDC hdc, int width, int height) {
 
     /* --- 4. STATUS BAR --- */
     rcStatus.left = 0;
-    rcStatus.top = height - 19; 
+    rcStatus.top = height - STATUS_BAR_HEIGHT; 
     rcStatus.right = width;
     rcStatus.bottom = height;
 
@@ -97,21 +99,25 @@ void DrawBoard(HDC hdc, int width, int height) {
     DeleteObject(hbrWhite);
 
     hPen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160));
-    oldPen = SelectObject(hdc, hPen);
-    MoveToEx(hdc, 0, height - 19, NULL);
-    LineTo(hdc, width, height - 19);
+    oldPen = (HPEN)SelectObject(hdc, hPen);
+    MoveToEx(hdc, 0, height - STATUS_BAR_HEIGHT, NULL);
+    LineTo(hdc, width, height - STATUS_BAR_HEIGHT);
+    /* FIXED: Corrected SelectObject arguments to avoid build error */
     SelectObject(hdc, oldPen);
     DeleteObject(hPen);
 
-    hFont = CreateFontW(13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, 
+    hFont = CreateFontW(STATUS_FONT_SIZE, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
                         ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
                         DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Tahoma");
     
     hOldFont = (HFONT)SelectObject(hdc, hFont);
     SetBkMode(hdc, TRANSPARENT);
     
+    rcText = rcStatus;
+    rcText.right -= 12; 
+    
     wsprintfW(statusText, L"Score: 0   Time: 0");
-    TextOutW(hdc, width - 120, height - 17, statusText, lstrlenW(statusText));
+    DrawTextW(hdc, statusText, -1, &rcText, DT_SINGLELINE | DT_RIGHT | DT_VCENTER);
 
     SelectObject(hdc, hOldFont);
     DeleteObject(hFont);
