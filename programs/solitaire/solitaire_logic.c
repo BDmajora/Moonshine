@@ -102,7 +102,7 @@ void DrawBoard(HDC hdc, int width, int height) {
     oldPen = (HPEN)SelectObject(hdc, hPen);
     MoveToEx(hdc, 0, height - STATUS_BAR_HEIGHT, NULL);
     LineTo(hdc, width, height - STATUS_BAR_HEIGHT);
-    /* FIXED: Corrected SelectObject arguments to avoid build error */
+    
     SelectObject(hdc, oldPen);
     DeleteObject(hPen);
 
@@ -113,10 +113,13 @@ void DrawBoard(HDC hdc, int width, int height) {
     hOldFont = (HFONT)SelectObject(hdc, hFont);
     SetBkMode(hdc, TRANSPARENT);
     
+    /* Calculate text area: rcText is a copy of rcStatus but adjusted for right alignment */
     rcText = rcStatus;
-    rcText.right -= 12; 
+    rcText.right -= 2; /* Move text 2 pixels away from the absolute right edge to 'hug' it */
     
     wsprintfW(statusText, L"Score: 0   Time: 0");
+    
+    /* Using DT_RIGHT to snap text to the right side of rcText */
     DrawTextW(hdc, statusText, -1, &rcText, DT_SINGLELINE | DT_RIGHT | DT_VCENTER);
 
     SelectObject(hdc, hOldFont);
