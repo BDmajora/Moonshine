@@ -38,8 +38,11 @@ void DrawBoard(HDC hdc, int width, int height) {
     DWORD elapsed;
 
     /* 1. Draw Status Bar (The white bar at the bottom) */
-    rcStatus.left = 0; rcStatus.top = height - STATUS_BAR_HEIGHT;
-    rcStatus.right = width; rcStatus.bottom = height;
+    rcStatus.left = 0; 
+    rcStatus.top = height - STATUS_BAR_HEIGHT;
+    rcStatus.right = width; 
+    rcStatus.bottom = height;
+    
     hbr = CreateSolidBrush(RGB(255, 255, 255));
     FillRect(hdc, &rcStatus, hbr); 
     DeleteObject(hbr);
@@ -49,16 +52,17 @@ void DrawBoard(HDC hdc, int width, int height) {
     hOldPen = (HPEN)SelectObject(hdc, hpen);
     MoveToEx(hdc, 0, height - STATUS_BAR_HEIGHT, NULL);
     LineTo(hdc, width, height - STATUS_BAR_HEIGHT);
-    SelectObject(hdc, hOldPen); DeleteObject(hpen);
+    SelectObject(hdc, hOldPen); 
+    DeleteObject(hpen);
 
-    /* Create Bold Font for Score/Time - Bumped to size 16 */
+    /* Create Bold Font for Score/Time - Set to 16pt for visibility */
     hfont = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH | FF_SWISS, L"MS Sans Serif");
     hOldFont = (HFONT)SelectObject(hdc, hfont);
     SetBkMode(hdc, TRANSPARENT);
 
-    /* Combine Score and Time into one string for bottom-right placement */
+    /* Combine Score and Time into one string for bottom-right placement as seen in image_0db85b.png */
     elapsed = (GetTickCount() - g_Game.start_tick) / 1000;
     wsprintfW(buf, L"Score: %d    Time: %d", g_Game.score, (int)elapsed);
     
@@ -66,9 +70,10 @@ void DrawBoard(HDC hdc, int width, int height) {
     rcText.right -= STATUS_MARGIN;
     DrawTextW(hdc, buf, -1, &rcText, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
 
-    SelectObject(hdc, hOldFont); DeleteObject(hfont);
+    SelectObject(hdc, hOldFont); 
+    DeleteObject(hfont);
 
-    /* 2. Draw Stock (3D depth effect) */
+    /* 2. Draw Stock (3D stack effect) */
     if (g_Game.stock_top > 0) {
         if (g_Game.stock_top > 5) 
             cdtDraw(hdc, X_MARGIN - 4, Y_MARGIN - 4, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
@@ -92,17 +97,20 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, fx, Y_MARGIN, g_Game.foundation[i][g_Game.found_top[i] - 1] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* 5. Draw Tableau (Packed Layout) */
+    /* 5. Draw Tableau (Closing the middle gap) */
+    /* Starting Y is moved up to 118 to tighten the layout per image_0db85b.png */
     for (col = 0; col < 7; col++) {
         int cx = Layout_GetTabX(col);
         if (g_Game.tab_top[col] == 0) {
-            cdtDraw(hdc, cx, Y_TABLEAU, 0, MODE_GHOST, SOL_BG_COLOR);
+            cdtDraw(hdc, cx, 118, 0, MODE_GHOST, SOL_BG_COLOR);
             continue;
         }
         
-        y = Y_TABLEAU;
+        y = 118; 
         for (row = 0; row < g_Game.tab_top[col]; row++) {
             CARD c = g_Game.tableau[col][row];
+            
+            /* Skip drawing cards that are currently being dragged */
             if (dragging && drag_from_type == SRC_TAB && drag_from_idx == col && row >= g_Game.tab_top[col] - drag_count)
                 break;
 
@@ -111,7 +119,7 @@ void DrawBoard(HDC hdc, int width, int height) {
                 y += TAB_FACE_UP_OFF;
             } else {
                 cdtDraw(hdc, cx, y, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
-                y += TAB_FACE_DOWN_OFF; /* PACKED spacing */
+                y += TAB_FACE_DOWN_OFF; /* Tighter packing for face-down cards */
             }
         }
     }

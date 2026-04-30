@@ -85,12 +85,18 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
 {
     WNDCLASSW wc = {0};
     HWND hwnd; MSG msg;
-    RECT rc; DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT rc; 
+    /* Style without resizing to keep it pixel-perfect like the original */
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
-    /* Calculate window size based on layout constants */
+    /* 1. Calculate the narrow, compact width (approx 590-600px) */
     rc.left = 0; rc.top = 0;
-    rc.right = X_MARGIN * 2 + 7 * X_SPACING; 
-    rc.bottom = Y_TABLEAU + 5 * 96 + STATUS_BAR_HEIGHT + 8;
+    rc.right = X_MARGIN + (7 * X_SPACING); 
+    
+    /* 2. Calculate the shorter height to match the original (approx 440-450px) 
+       The original doesn't have a massive green void at the bottom. */
+    rc.bottom = 383; 
+    
     AdjustWindowRect(&rc, style, TRUE);
 
     wc.lpfnWndProc   = SolWndProc;
@@ -101,6 +107,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
     wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
     RegisterClassW(&wc);
 
+    /* Center the window on screen */
     hwnd = CreateWindowW(L"SolitaireWnd", L"Solitaire", style,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rc.right - rc.left, rc.bottom - rc.top,
