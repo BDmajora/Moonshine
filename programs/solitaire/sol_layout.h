@@ -4,13 +4,13 @@
 #define X_MARGIN        10
 #define Y_MARGIN        7
 #define X_SPACING       79
-#define Y_TABLEAU       (Y_MARGIN + 96 + 16)
-#define FACE_DOWN_OFF   18
-#define FACE_UP_OFF     28
+#define Y_TABLEAU       109
+#define FACE_DOWN_OFF   3
+#define FACE_UP_OFF     19
 
 int  Layout_GetTabX(int col);
 int  Layout_GetTabCardY(int col, int row);
-int  Layout_HitTabCard(int col, int mx, int my); // Added this
+int  Layout_HitTabCard(int col, int mx, int my);
 BOOL Layout_CheckHit(int mx, int my, int cx, int cy);
 
 #endif

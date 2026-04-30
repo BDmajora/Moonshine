@@ -93,9 +93,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
     rc.left = 0; rc.top = 0;
     rc.right = X_MARGIN + (7 * X_SPACING); 
     
-    /* 2. Calculate the shorter height to match the original (approx 440-450px) 
+    /* 2. Calculate the shorter height to match the original (approx 383px) 
        The original doesn't have a massive green void at the bottom. */
-    rc.bottom = 383; 
+    rc.bottom = 384; 
     
     AdjustWindowRect(&rc, style, TRUE);
 

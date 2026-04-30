@@ -10,7 +10,7 @@
 #define IDR_MAINMENU       200
 
 #define SOL_BG_COLOR       RGB(0,128,0)
-#define STATUS_BAR_HEIGHT  18
+#define STATUS_BAR_HEIGHT  17
 
 /* 2. C-Only Definitions (Hidden from RC) */
 #ifndef RC_INVOKED
