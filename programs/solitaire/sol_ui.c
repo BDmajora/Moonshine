@@ -1,6 +1,7 @@
 #include "solitaire.h"
 
 #define STATUS_MARGIN      12
+#define WASTE_FAN_OFF      12
 
 /* Drag state */
 static BOOL  dragging = FALSE;
@@ -57,7 +58,6 @@ void DrawBoard(HDC hdc, int width, int height) {
     SetBkMode(hdc, TRANSPARENT);
 
     elapsed = (GetTickCount() - g_Game.start_tick) / 1000;
-
     wsprintfW(buf, L"Score: %d  Time: %d", g_Game.score, (int)elapsed);
     rcText = rcStatus;
     rcText.right -= STATUS_MARGIN;
@@ -66,7 +66,7 @@ void DrawBoard(HDC hdc, int width, int height) {
     SelectObject(hdc, hOldFont);
     DeleteObject(hfont);
 
-    /* 2. Stock */
+    /* 2. Stock - Restored to top-left fanning (Up and Left) */
     if (g_Game.stock_top > 0) {
         if (g_Game.stock_top > 5)
             cdtDraw(hdc, X_MARGIN - 4, Y_MARGIN - 4, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
@@ -74,13 +74,30 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, X_MARGIN - 2, Y_MARGIN - 2, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
     } else {
-        cdtDraw(hdc, X_MARGIN, Y_MARGIN, 0, MODE_GHOST, SOL_BG_COLOR);
+        /* Show the re-deal circle (card 53) if there are cards in the waste */
+        if (g_Game.waste_top > 0)
+            cdtDraw(hdc, X_MARGIN, Y_MARGIN, 53, MODE_FACEUP, SOL_BG_COLOR);
+        else
+            cdtDraw(hdc, X_MARGIN, Y_MARGIN, 0, MODE_GHOST, SOL_BG_COLOR);
     }
 
-    /* 3. Waste */
-    if (g_Game.waste_top > 0)
-        cdtDraw(hdc, X_MARGIN + X_SPACING, Y_MARGIN,
-                g_Game.waste[g_Game.waste_top - 1] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
+    /* 3. Waste - Subtle Diagonal fanning (1-pixel vertical step) */
+    if (g_Game.waste_top > 0) {
+        int show = g_Game.waste_top < 3 ? g_Game.waste_top : 3;
+        int wx_base = X_MARGIN + X_SPACING;
+        
+        for (i = 0; i < show; i++) {
+            int wx = wx_base + (i * WASTE_FAN_OFF);
+            int wy = Y_MARGIN + i; // Changed to a 1-pixel vertical step for subtlety
+            
+            if (dragging && drag_from_type == SRC_WASTE && i == show - 1)
+                continue;
+
+            cdtDraw(hdc, wx, wy,
+                    g_Game.waste[g_Game.waste_top - show + i] & ~CARD_FACEUP,
+                    MODE_FACEUP, SOL_BG_COLOR);
+        }
+    }
 
     /* 4. Foundations */
     for (i = 0; i < 4; i++) {
@@ -89,7 +106,8 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, fx, Y_MARGIN, 0, MODE_GHOST, SOL_BG_COLOR);
         else
             cdtDraw(hdc, fx, Y_MARGIN,
-                    g_Game.foundation[i][g_Game.found_top[i] - 1] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
+                    g_Game.foundation[i][g_Game.found_top[i] - 1] & ~CARD_FACEUP,
+                    MODE_FACEUP, SOL_BG_COLOR);
     }
 
     /* 5. Tableau */
@@ -134,7 +152,9 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
     /* Stock */
     if (Layout_CheckHit(mx, my, X_MARGIN, Y_MARGIN)) {
         if (g_Game.stock_top > 0) {
-            g_Game.waste[g_Game.waste_top++] = g_Game.stock[--g_Game.stock_top] | CARD_FACEUP;
+            int draw = g_Game.stock_top < 3 ? g_Game.stock_top : 3;
+            for (i = 0; i < draw; i++)
+                g_Game.waste[g_Game.waste_top++] = g_Game.stock[--g_Game.stock_top] | CARD_FACEUP;
         } else {
             while (g_Game.waste_top > 0)
                 g_Game.stock[g_Game.stock_top++] = g_Game.waste[--g_Game.waste_top] & ~CARD_FACEUP;
@@ -144,18 +164,24 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
         return;
     }
 
-    /* Waste */
-    if (g_Game.waste_top > 0 && Layout_CheckHit(mx, my, X_MARGIN + X_SPACING, Y_MARGIN)) {
-        drag_cards[0] = g_Game.waste[g_Game.waste_top - 1];
-        drag_count = 1;
-        drag_from_type = SRC_WASTE;
-        drag_x_off = mx - (X_MARGIN + X_SPACING);
-        drag_y_off = my - Y_MARGIN;
-        dragging = TRUE;
-        drag_mouse_x = mx;
-        drag_mouse_y = my;
-        SetCapture(hwnd);
-        return;
+    /* Waste - hit test the top card with the 1-pixel vertical offset */
+    if (g_Game.waste_top > 0) {
+        int show = g_Game.waste_top < 3 ? g_Game.waste_top : 3;
+        int wx = X_MARGIN + X_SPACING + (show - 1) * WASTE_FAN_OFF;
+        int wy = Y_MARGIN + (show - 1); // Match the subtle 1-pixel step
+
+        if (Layout_CheckHit(mx, my, wx, wy)) {
+            drag_cards[0] = g_Game.waste[g_Game.waste_top - 1];
+            drag_count = 1;
+            drag_from_type = SRC_WASTE;
+            drag_x_off = mx - wx;
+            drag_y_off = my - wy;
+            dragging = TRUE;
+            drag_mouse_x = mx;
+            drag_mouse_y = my;
+            SetCapture(hwnd);
+            return;
+        }
     }
 
     /* Tableau */
@@ -212,8 +238,8 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
         if (drag_count == 1 && Layout_CheckHit(mx, my, fx, Y_MARGIN)
                 && Game_CanDropFound(top_card, i)) {
             g_Game.foundation[i][g_Game.found_top[i]++] = top_card;
-            if (drag_from_type == SRC_WASTE)      g_Game.waste_top--;
-            else if (drag_from_type == SRC_TAB)   g_Game.tab_top[drag_from_idx]--;
+            if (drag_from_type == SRC_WASTE)    g_Game.waste_top--;
+            else if (drag_from_type == SRC_TAB) g_Game.tab_top[drag_from_idx]--;
             g_Game.score += 10;
             dropped = TRUE;
             break;
