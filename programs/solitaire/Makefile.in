@@ -1,11 +1,14 @@
-MODULE      = solitaire.exe
-IMPORTS     = cards user32 gdi32 advapi32 comctl32
+MODULE        = solitaire.exe
+IMPORTS       = cards user32 gdi32 advapi32 comctl32
 EXTRADLLFLAGS = -mwindows -municode
 
-# This line is the missing link
+# Link against the cards.dll headers in the ReactOS/Wine tree
 EXTRAINCL = -I$(top_srcdir)/dlls/cards
 
 SOURCES = \
     main.c \
-    solitaire_logic.c \
+    sol_cards.c \
+    sol_game.c \
+    sol_layout.c \
+    sol_ui.c \
     solitaire.rc
