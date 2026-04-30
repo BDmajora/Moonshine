@@ -3,14 +3,14 @@
 #define STATUS_MARGIN      12
 #define WASTE_FAN_OFF      12
 
-/* Drag state */
-static BOOL  dragging = FALSE;
-static CARD  drag_cards[52];
-static int   drag_count = 0;
-static int   drag_from_type;
-static int   drag_from_idx;
-static int   drag_mouse_x, drag_mouse_y;
-static int   drag_x_off, drag_y_off;
+/* Drag state (Static keyword removed to allow external linkage) */
+BOOL  dragging = FALSE;
+CARD  drag_cards[52];
+int   drag_count = 0;
+int   drag_from_type;
+int   drag_from_idx;
+int   drag_mouse_x, drag_mouse_y;
+int   drag_x_off, drag_y_off;
 
 #define SRC_WASTE  1
 #define SRC_TAB    2
@@ -144,142 +144,4 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, dx, dy + (i * FACE_UP_OFF),
                     drag_cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
-}
-
-void OnLButtonDown(HWND hwnd, int mx, int my) {
-    int col, row, i;
-
-    /* Stock */
-    if (Layout_CheckHit(mx, my, X_MARGIN, Y_MARGIN)) {
-        if (g_Game.stock_top > 0) {
-            int draw = g_Game.stock_top < 3 ? g_Game.stock_top : 3;
-            for (i = 0; i < draw; i++)
-                g_Game.waste[g_Game.waste_top++] = g_Game.stock[--g_Game.stock_top] | CARD_FACEUP;
-        } else {
-            while (g_Game.waste_top > 0)
-                g_Game.stock[g_Game.stock_top++] = g_Game.waste[--g_Game.waste_top] & ~CARD_FACEUP;
-            g_Game.score = (g_Game.score > 100) ? g_Game.score - 100 : 0;
-        }
-        InvalidateRect(hwnd, NULL, FALSE);
-        return;
-    }
-
-    /* Waste - hit test the top card with the 1-pixel vertical offset */
-    if (g_Game.waste_top > 0) {
-        int show = g_Game.waste_top < 3 ? g_Game.waste_top : 3;
-        int wx = X_MARGIN + X_SPACING + (show - 1) * WASTE_FAN_OFF;
-        int wy = Y_MARGIN + (show - 1); // Match the subtle 1-pixel step
-
-        if (Layout_CheckHit(mx, my, wx, wy)) {
-            drag_cards[0] = g_Game.waste[g_Game.waste_top - 1];
-            drag_count = 1;
-            drag_from_type = SRC_WASTE;
-            drag_x_off = mx - wx;
-            drag_y_off = my - wy;
-            dragging = TRUE;
-            drag_mouse_x = mx;
-            drag_mouse_y = my;
-            SetCapture(hwnd);
-            return;
-        }
-    }
-
-    /* Tableau */
-    for (col = 0; col < 7; col++) {
-        row = Layout_HitTabCard(col, mx, my);
-        if (row < 0) continue;
-
-        if (!(g_Game.tableau[col][row] & CARD_FACEUP) && row == g_Game.tab_top[col] - 1) {
-            g_Game.tableau[col][row] |= CARD_FACEUP;
-            g_Game.score += 5;
-            InvalidateRect(hwnd, NULL, FALSE);
-            return;
-        }
-
-        if (g_Game.tableau[col][row] & CARD_FACEUP) {
-            drag_count = g_Game.tab_top[col] - row;
-            for (i = 0; i < drag_count; i++)
-                drag_cards[i] = g_Game.tableau[col][row + i];
-
-            drag_from_type = SRC_TAB;
-            drag_from_idx = col;
-            drag_x_off = mx - Layout_GetTabX(col);
-            drag_y_off = my - Layout_GetTabCardY(col, row);
-            dragging = TRUE;
-            drag_mouse_x = mx;
-            drag_mouse_y = my;
-            SetCapture(hwnd);
-            return;
-        }
-    }
-}
-
-void OnMouseMove(HWND hwnd, int mx, int my) {
-    if (!dragging) return;
-    drag_mouse_x = mx;
-    drag_mouse_y = my;
-    InvalidateRect(hwnd, NULL, FALSE);
-}
-
-void OnLButtonUp(HWND hwnd, int mx, int my) {
-    int i, col;
-    BOOL dropped = FALSE;
-    CARD top_card;
-
-    if (!dragging) return;
-
-    top_card = drag_cards[0];
-    dragging = FALSE;
-    ReleaseCapture();
-
-    /* Try Foundation */
-    for (i = 0; i < 4; i++) {
-        int fx = X_MARGIN + (3 + i) * X_SPACING;
-        if (drag_count == 1 && Layout_CheckHit(mx, my, fx, Y_MARGIN)
-                && Game_CanDropFound(top_card, i)) {
-            g_Game.foundation[i][g_Game.found_top[i]++] = top_card;
-            if (drag_from_type == SRC_WASTE)    g_Game.waste_top--;
-            else if (drag_from_type == SRC_TAB) g_Game.tab_top[drag_from_idx]--;
-            g_Game.score += 10;
-            dropped = TRUE;
-            break;
-        }
-    }
-
-    /* Try Tableau */
-    if (!dropped) {
-        for (col = 0; col < 7; col++) {
-            int cx = Layout_GetTabX(col);
-            int n  = g_Game.tab_top[col];
-            int ty = (n == 0) ? Y_TABLEAU : Layout_GetTabCardY(col, n - 1);
-
-            if (mx >= cx && mx < cx + 71 && my >= ty && my < ty + 96) {
-                if (Game_CanDropTab(top_card, col)) {
-                    for (i = 0; i < drag_count; i++)
-                        g_Game.tableau[col][g_Game.tab_top[col]++] = drag_cards[i];
-
-                    if (drag_from_type == SRC_WASTE) {
-                        g_Game.waste_top--;
-                        g_Game.score += 5;
-                    } else if (drag_from_type == SRC_TAB) {
-                        g_Game.tab_top[drag_from_idx] -= drag_count;
-                    }
-                    dropped = TRUE;
-                    break;
-                }
-            }
-        }
-    }
-
-    /* Auto-flip */
-    if (dropped && drag_from_type == SRC_TAB) {
-        int old_col = drag_from_idx;
-        int top = g_Game.tab_top[old_col];
-        if (top > 0 && !(g_Game.tableau[old_col][top - 1] & CARD_FACEUP)) {
-            g_Game.tableau[old_col][top - 1] |= CARD_FACEUP;
-            g_Game.score += 5;
-        }
-    }
-
-    InvalidateRect(hwnd, NULL, FALSE);
 }

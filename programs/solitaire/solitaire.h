@@ -21,10 +21,32 @@
 typedef int CARD;
 #define CARD_FACEUP  0x100
 
+/* Constants for Layout and Logic */
+#define STATUS_MARGIN      12
+#define WASTE_FAN_OFF      12
+#define CARD_BACK_RED      54
+
+/* Drag Source Types */
+#define SRC_WASTE          1
+#define SRC_TAB            2
+#define SRC_FOUND          3
+
 /* Sub-headers */
 #include "sol_cards.h"
 #include "sol_game.h"
 #include "sol_layout.h"
+
+/* 
+ * Global Shared Drag State 
+ * Defined in sol_ui.c without 'extern' or 'static'
+ */
+extern BOOL  dragging;
+extern CARD  drag_cards[52];
+extern int   drag_count;
+extern int   drag_from_type;
+extern int   drag_from_idx;
+extern int   drag_mouse_x, drag_mouse_y;
+extern int   drag_x_off, drag_y_off;
 
 /* Global Controller Prototypes */
 void DrawBoard(HDC hdc, int width, int height);
