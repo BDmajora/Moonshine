@@ -1,5 +1,10 @@
 #include "solitaire.h"
 
+/* Spacing constants to match reference image_0e1d5b.png */
+#define TAB_FACE_DOWN_OFF  3   /* Tight packing for hidden cards */
+#define TAB_FACE_UP_OFF   15   /* Standard spacing for visible cards */
+#define STATUS_MARGIN      12
+
 /* Drag state */
 static BOOL  dragging = FALSE;
 static CARD  drag_cards[52];
@@ -13,10 +18,10 @@ static int   drag_x_off, drag_y_off;
 #define SRC_TAB    2
 #define SRC_FOUND  3
 
-#define CARD_BACK_RED 54 // Use 54 for the red back seen in image_0e339f.png
+#define CARD_BACK_RED 54 /* Red back as seen in image_0e1a13.png */
 
 void OnTimer(HWND hwnd) {
-    /* Redraw status bar only to update the clock */
+    /* Update the clock area in the status bar */
     RECT rc; 
     GetClientRect(hwnd, &rc);
     rc.top = rc.bottom - STATUS_BAR_HEIGHT;
@@ -25,45 +30,48 @@ void OnTimer(HWND hwnd) {
 
 void DrawBoard(HDC hdc, int width, int height) {
     int i, col, row, y;
-    WCHAR buf[64];
-    RECT rcStatus, rcScore, rcTime;
+    WCHAR buf[128];
+    RECT rcStatus, rcText;
     HBRUSH hbr;
     HPEN hpen, hOldPen;
     HFONT hfont, hOldFont;
     DWORD elapsed;
 
-    /* 1. Draw Status Bar (White Header at Bottom) */
+    /* 1. Draw Status Bar (The white bar at the bottom) */
     rcStatus.left = 0; rcStatus.top = height - STATUS_BAR_HEIGHT;
     rcStatus.right = width; rcStatus.bottom = height;
-    hbr = CreateSolidBrush(RGB(255, 255, 255)); // White as requested
+    hbr = CreateSolidBrush(RGB(255, 255, 255));
     FillRect(hdc, &rcStatus, hbr); 
     DeleteObject(hbr);
 
-    hpen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_BTNSHADOW));
+    /* Separator line for status bar */
+    hpen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160));
     hOldPen = (HPEN)SelectObject(hdc, hpen);
     MoveToEx(hdc, 0, height - STATUS_BAR_HEIGHT, NULL);
     LineTo(hdc, width, height - STATUS_BAR_HEIGHT);
     SelectObject(hdc, hOldPen); DeleteObject(hpen);
 
-    hfont = CreateFontW(13, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET,
+    /* Create Bold Font for Score/Time - Bumped to size 16 */
+    hfont = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
         DEFAULT_PITCH | FF_SWISS, L"MS Sans Serif");
     hOldFont = (HFONT)SelectObject(hdc, hfont);
     SetBkMode(hdc, TRANSPARENT);
 
+    /* Combine Score and Time into one string for bottom-right placement */
     elapsed = (GetTickCount() - g_Game.start_tick) / 1000;
-    wsprintfW(buf, L"Score: %d", g_Game.score);
-    rcScore = rcStatus; rcScore.left += 4;
-    DrawTextW(hdc, buf, -1, &rcScore, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
-
-    wsprintfW(buf, L"Time: %d", (int)elapsed);
-    rcTime = rcStatus; rcTime.right -= 10;
-    DrawTextW(hdc, buf, -1, &rcTime, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
+    wsprintfW(buf, L"Score: %d    Time: %d", g_Game.score, (int)elapsed);
+    
+    rcText = rcStatus;
+    rcText.right -= STATUS_MARGIN;
+    DrawTextW(hdc, buf, -1, &rcText, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
 
     SelectObject(hdc, hOldFont); DeleteObject(hfont);
 
-    /* 2. Draw Stock (with stack effect) */
+    /* 2. Draw Stock (3D depth effect) */
     if (g_Game.stock_top > 0) {
+        if (g_Game.stock_top > 5) 
+            cdtDraw(hdc, X_MARGIN - 4, Y_MARGIN - 4, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
         if (g_Game.stock_top > 1) 
             cdtDraw(hdc, X_MARGIN - 2, Y_MARGIN - 2, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
@@ -84,23 +92,27 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, fx, Y_MARGIN, g_Game.foundation[i][g_Game.found_top[i] - 1] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* 5. Draw Tableau */
+    /* 5. Draw Tableau (Packed Layout) */
     for (col = 0; col < 7; col++) {
         int cx = Layout_GetTabX(col);
         if (g_Game.tab_top[col] == 0) {
             cdtDraw(hdc, cx, Y_TABLEAU, 0, MODE_GHOST, SOL_BG_COLOR);
             continue;
         }
+        
+        y = Y_TABLEAU;
         for (row = 0; row < g_Game.tab_top[col]; row++) {
             CARD c = g_Game.tableau[col][row];
             if (dragging && drag_from_type == SRC_TAB && drag_from_idx == col && row >= g_Game.tab_top[col] - drag_count)
                 break;
 
-            y = Layout_GetTabCardY(col, row);
-            if (c & CARD_FACEUP)
+            if (c & CARD_FACEUP) {
                 cdtDraw(hdc, cx, y, c & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
-            else
+                y += TAB_FACE_UP_OFF;
+            } else {
                 cdtDraw(hdc, cx, y, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
+                y += TAB_FACE_DOWN_OFF; /* PACKED spacing */
+            }
         }
     }
 
@@ -109,7 +121,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         int dx = drag_mouse_x - drag_x_off;
         int dy = drag_mouse_y - drag_y_off;
         for (i = 0; i < drag_count; i++) {
-            cdtDraw(hdc, dx, dy + (i * FACE_UP_OFF), drag_cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
+            cdtDraw(hdc, dx, dy + (i * TAB_FACE_UP_OFF), drag_cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
         }
     }
 }
@@ -181,11 +193,10 @@ void OnMouseMove(HWND hwnd, int mx, int my) {
 void OnLButtonUp(HWND hwnd, int mx, int my) {
     int i, col;
     BOOL dropped = FALSE;
-    CARD top_card; /* Declare at the top to satisfy C90 */
+    CARD top_card; /* C90 compatible */
 
     if (!dragging) return;
     
-    /* Assign value only after the guard check */
     top_card = drag_cards[0]; 
     dragging = FALSE;
     ReleaseCapture();
