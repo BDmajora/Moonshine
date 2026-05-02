@@ -1,4 +1,5 @@
 #include "solitaire.h"
+#include "sol_endgame.h"
 
 static int cardW, cardH;
 static UINT timer_id;
@@ -18,23 +19,41 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_TIMER:
-        OnTimer(hwnd);
+        if (wp == ENDGAME_TIMER_ID)
+            EndGame_Tick(hwnd);
+        else
+            OnTimer(hwnd);
         break;
 
+    case WM_SYSKEYDOWN:
+        /* Alt+Shift+2 - instant win for testing */
+        if (wp == '2' && (GetKeyState(VK_MENU) & 0x8000)
+                      && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            int s, f;
+            for (s = 0; s < 4; s++) {
+                g_Game.found_top[s] = 13;
+                for (f = 0; f < 13; f++)
+                    g_Game.foundation[s][f] = (CARD)((f * 4) + s) | CARD_FACEUP;
+            }
+            EndGame_Start(hwnd);
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+
     case WM_ERASEBKGND:
-        return 1;
+        /* Suppress background erase during endgame to allow streak trails */
+        if (g_endgame_active) return 1;
+        return 0;
 
     case WM_PAINT:
         hdc = BeginPaint(hwnd, &ps);
         GetClientRect(hwnd, &rc);
-        
-        /* Double buffering or direct fill */
-        { 
+        if (!g_endgame_active) {
             HBRUSH hbr = CreateSolidBrush(SOL_BG_COLOR);
-            FillRect(hdc, &rc, hbr); 
-            DeleteObject(hbr); 
+            FillRect(hdc, &rc, hbr);
+            DeleteObject(hbr);
         }
-        
         DrawBoard(hdc, rc.right, rc.bottom);
         EndPaint(hwnd, &ps);
         break;
@@ -59,13 +78,14 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_COMMAND:
         switch(LOWORD(wp)) {
-            case IDM_GAME_EXIT: 
-                PostQuitMessage(0); 
-                break;
-            case IDM_GAME_DEAL:
-                Game_Init();
-                InvalidateRect(hwnd, NULL, TRUE);
-                break;
+        case IDM_GAME_EXIT:
+            PostQuitMessage(0);
+            break;
+        case IDM_GAME_DEAL:
+            EndGame_Stop(hwnd);
+            Game_Init();
+            InvalidateRect(hwnd, NULL, TRUE);
+            break;
         }
         break;
 
@@ -85,18 +105,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
 {
     WNDCLASSW wc = {0};
     HWND hwnd; MSG msg;
-    RECT rc; 
-    /* Style without resizing to keep it pixel-perfect like the original */
+    RECT rc;
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
-    /* 1. Calculate the narrow, compact width (approx 590-600px) */
     rc.left = 0; rc.top = 0;
-    rc.right = X_MARGIN + (7 * X_SPACING); 
-    
-    /* 2. Calculate the shorter height to match the original (approx 383px) 
-       The original doesn't have a massive green void at the bottom. */
-    rc.bottom = 384; 
-    
+    rc.right = X_MARGIN + (7 * X_SPACING);
+    rc.bottom = 384;
     AdjustWindowRect(&rc, style, TRUE);
 
     wc.lpfnWndProc   = SolWndProc;
@@ -107,7 +121,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
     wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
     RegisterClassW(&wc);
 
-    /* Center the window on screen */
     hwnd = CreateWindowW(L"SolitaireWnd", L"Solitaire", style,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rc.right - rc.left, rc.bottom - rc.top,

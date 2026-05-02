@@ -3,7 +3,7 @@
 
 #include <windows.h>
 
-void OnLButtonDown(HWND hwnd, int mx, int my); /* ADD THIS LINE */
+void OnLButtonDown(HWND hwnd, int mx, int my);
 void OnMouseMove(HWND hwnd, int mx, int my);
 void OnLButtonUp(HWND hwnd, int mx, int my);
 

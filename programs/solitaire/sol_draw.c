@@ -1,11 +1,10 @@
 #include "solitaire.h"
 #include "sol_draw.h"
 
-/* Standard cards.dll modes for the special empty deck markers */
-#define MODE_DECKX 6  /* Red X - no cards left to deal */
-#define MODE_DECKO 7  /* Green Circle - click to reshuffle waste into stock */
-
-/* Drag state */
+/* 
+ * Global Drag State Definition 
+ * (Allocates memory for variables declared 'extern' in solitaire.h)
+ */
 BOOL  dragging = FALSE;
 CARD  drag_cards[52];
 int   drag_count = 0;
@@ -14,6 +13,9 @@ int   drag_from_idx;
 int   drag_mouse_x, drag_mouse_y;
 int   drag_x_off, drag_y_off;
 
+/**
+ * OnTimer: Handles status bar updates by invalidating only the bottom area.
+ */
 void OnTimer(HWND hwnd) {
     RECT rc;
     GetClientRect(hwnd, &rc);
@@ -21,6 +23,9 @@ void OnTimer(HWND hwnd) {
     InvalidateRect(hwnd, &rc, FALSE);
 }
 
+/**
+ * DrawBoard: Main rendering entry point for the solitaire table.
+ */
 void DrawBoard(HDC hdc, int width, int height) {
     int i, col, row, y;
     WCHAR buf[128];
@@ -30,9 +35,11 @@ void DrawBoard(HDC hdc, int width, int height) {
     HFONT hfont, hOldFont;
     DWORD elapsed;
 
-    /* 1. Status Bar */
-    rcStatus.left = 0; rcStatus.top = height - STATUS_BAR_HEIGHT;
-    rcStatus.right = width; rcStatus.bottom = height;
+    /* 1. Status Bar Rendering */
+    rcStatus.left = 0; 
+    rcStatus.top = height - STATUS_BAR_HEIGHT;
+    rcStatus.right = width; 
+    rcStatus.bottom = height;
     
     hbr = CreateSolidBrush(RGB(255, 255, 255));
     FillRect(hdc, &rcStatus, hbr);
@@ -53,39 +60,34 @@ void DrawBoard(HDC hdc, int width, int height) {
 
     elapsed = (GetTickCount() - g_Game.start_tick) / 1000;
     wsprintfW(buf, L"Score: %d  Time: %d", g_Game.score, (int)elapsed);
-    rcText = rcStatus; rcText.right -= STATUS_MARGIN;
+    rcText = rcStatus; 
+    rcText.right -= STATUS_MARGIN;
     DrawTextW(hdc, buf, -1, &rcText, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
 
     SelectObject(hdc, hOldFont);
     DeleteObject(hfont);
 
-    /* 2. Stock - Original 3D Effect (Thickness on Top/Left, Pulling from Bottom/Right) */
+    /* 2. Stock - 3D Thickness Effect (Top/Left Fanning) */
     if (g_Game.stock_top > 0) {
-        /* 
-         * Logic: The "Anchor" is the back card. The front card is offset +4, +4.
-         * As the deck empties, the front layers are removed first, making it 
-         * look like you are pulling from the top and the deck is shrinking back.
-         */
-        
-        // Layer 1: The back-most base (Always drawn)
+        // Base Layer (Anchor)
         cdtDraw(hdc, X_MARGIN, Y_MARGIN, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
         
-        // Layer 2: Middle thickness (Drawn if deck has more than 5 cards)
+        // Middle Thickness (5+ cards)
         if (g_Game.stock_top > 5)
             cdtDraw(hdc, X_MARGIN + 2, Y_MARGIN + 2, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
             
-        // Layer 3: The top-most card (Drawn if deck has more than 10 cards)
+        // Top Card (10+ cards)
         if (g_Game.stock_top > 10)
             cdtDraw(hdc, X_MARGIN + 4, Y_MARGIN + 4, CARD_BACK_RED, MODE_FACEDOWN, SOL_BG_COLOR);
     } else {
-        /* Draw the Reshuffle (O) or Empty (X) markers */
+        /* Render markers for empty deck */
         if (g_Game.waste_top > 0)
             cdtDraw(hdc, X_MARGIN, Y_MARGIN, 0, MODE_DECKO, SOL_BG_COLOR); 
         else
             cdtDraw(hdc, X_MARGIN, Y_MARGIN, 0, MODE_DECKX, SOL_BG_COLOR); 
     }
 
-    /* 3. Waste - Subtle Diagonal fanning */
+    /* 3. Waste Pile - Subtle 1-pixel Vertical Fan */
     if (g_Game.waste_top > 0) {
         int show = g_Game.waste_top < 3 ? g_Game.waste_top : 3;
         int wx_base = X_MARGIN + X_SPACING;
@@ -94,6 +96,7 @@ void DrawBoard(HDC hdc, int width, int height) {
             int wx = wx_base + (i * WASTE_FAN_OFF);
             int wy = Y_MARGIN + i; 
             
+            // Skip rendering the card if it's currently being dragged
             if (dragging && drag_from_type == SRC_WASTE && i == show - 1)
                 continue;
 
@@ -114,7 +117,7 @@ void DrawBoard(HDC hdc, int width, int height) {
                     MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* 5. Tableau */
+    /* 5. Tableau Columns */
     for (col = 0; col < 7; col++) {
         int cx = Layout_GetTabX(col);
         if (g_Game.tab_top[col] == 0) {
@@ -126,6 +129,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         for (row = 0; row < g_Game.tab_top[col]; row++) {
             CARD c = g_Game.tableau[col][row];
 
+            // Don't draw cards that are currently in the drag stack
             if (dragging && drag_from_type == SRC_TAB && drag_from_idx == col
                     && row >= g_Game.tab_top[col] - drag_count)
                 break;
@@ -140,7 +144,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         }
     }
 
-    /* 6. Drag stack */
+    /* 6. Drag Stack - Always rendered last to stay on top */
     if (dragging) {
         int dx = drag_mouse_x - drag_x_off;
         int dy = drag_mouse_y - drag_y_off;
@@ -148,4 +152,7 @@ void DrawBoard(HDC hdc, int width, int height) {
             cdtDraw(hdc, dx, dy + (i * FACE_UP_OFF), 
                     drag_cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
+
+    /* 7. End-Game Animation Overlay Rendering */
+    EndGame_Draw(hdc, width, height);
 }

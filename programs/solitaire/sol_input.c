@@ -17,13 +17,11 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
     /* 1. Check Stock (Restore Draw 3) */
     if (mx >= X_MARGIN && mx < X_MARGIN + 71 && my >= Y_MARGIN && my < Y_MARGIN + 96) {
         if (g_Game.stock_top > 0) {
-            /* Flip up to 3 cards at once into the waste pile */
             int num_to_draw = (g_Game.stock_top >= 3) ? 3 : g_Game.stock_top;
             for (int k = 0; k < num_to_draw; k++) {
                 g_Game.waste[g_Game.waste_top++] = g_Game.stock[--g_Game.stock_top] | CARD_FACEUP;
             }
         } else {
-            /* Redeal logic remains the same */
             while (g_Game.waste_top > 0) {
                 g_Game.stock[g_Game.stock_top++] = g_Game.waste[--g_Game.waste_top] & ~CARD_FACEUP;
             }
@@ -71,7 +69,7 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
                         dragging = TRUE;
                         drag_from_type = SRC_TAB;
                         drag_from_idx = col;
-                        drag_count = top - row; /* The count is correctly calculated here */
+                        drag_count = top - row;
                         
                         for (i = 0; i < drag_count; i++) {
                             drag_cards[i] = g_Game.tableau[col][row + i];
@@ -103,21 +101,31 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
     dragging = FALSE;
     ReleaseCapture();
 
-    /* Try Foundation check... */
+    /* Try Foundation drop */
     for (i = 0; i < 4; i++) {
         int fx = X_MARGIN + (3 + i) * X_SPACING;
         if (drag_count == 1 && Layout_CheckHit(mx, my, fx, Y_MARGIN)
                 && Game_CanDropFound(top_card, i)) {
+            
             g_Game.foundation[i][g_Game.found_top[i]++] = top_card;
+            
             if (drag_from_type == SRC_WASTE)    g_Game.waste_top--;
             else if (drag_from_type == SRC_TAB) g_Game.tab_top[drag_from_idx]--;
+            
             g_Game.score += 10;
             dropped = TRUE;
+
+            /* WIN CHECK: 52 cards in foundations means the game is over */
+            if (g_Game.found_top[0] + g_Game.found_top[1] + 
+                g_Game.found_top[2] + g_Game.found_top[3] == 52) {
+                KillTimer(hwnd, 1);
+                MessageBoxW(hwnd, L"Congratulations! You won!", L"Solitaire", MB_OK | MB_ICONINFORMATION);
+            }
             break;
         }
     }
 
-    /* Try Tableau (Restoring stack removal) */
+    /* Try Tableau drop */
     if (!dropped) {
         for (col = 0; col < 7; col++) {
             int cx = Layout_GetTabX(col);
@@ -133,7 +141,6 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
                         g_Game.waste_top--;
                         g_Game.score += 5;
                     } else if (drag_from_type == SRC_TAB) {
-                        /* FIX: Subtract the full count, not just -- */
                         g_Game.tab_top[drag_from_idx] -= drag_count; 
                     }
                     dropped = TRUE;
@@ -143,7 +150,7 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
         }
     }
 
-    /* Auto-flip logic remains the same... */
+    /* Auto-flip logic */
     if (dropped && drag_from_type == SRC_TAB) {
         int old_col = drag_from_idx;
         int top = g_Game.tab_top[old_col];

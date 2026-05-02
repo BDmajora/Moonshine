@@ -13,6 +13,10 @@
 #define SRC_TAB            2
 #define SRC_FOUND          3
 
+/* Standard cards.dll modes for the special empty deck markers */
+#define MODE_DECKX         6  /* Red X - no cards left to deal */
+#define MODE_DECKO         7  /* Green Circle - click to reshuffle waste into stock */
+
 /* Core Drawing Functions */
 void OnTimer(HWND hwnd);
 void DrawBoard(HDC hdc, int width, int height);
