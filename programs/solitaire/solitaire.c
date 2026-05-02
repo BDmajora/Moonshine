@@ -70,7 +70,8 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_ERASEBKGND:
-        if (g_endgame_active) return 1;
+        /* This prevents erasing the screen, leaving the trails intact */
+        if (g_endgame_active) return 1; 
         return 0;
 
     case WM_PAINT:
