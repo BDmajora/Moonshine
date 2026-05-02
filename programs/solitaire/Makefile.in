@@ -6,10 +6,10 @@ EXTRADLLFLAGS = -mwindows -municode
 EXTRAINCL = -I$(top_srcdir)/dlls/cards
 
 SOURCES = \
-    main.c \
+    solitaire.c \
     sol_cards.c \
     sol_game.c \
     sol_layout.c \
     sol_input.c \
-    sol_ui.c \
+    sol_draw.c \
     solitaire.rc

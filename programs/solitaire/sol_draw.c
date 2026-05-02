@@ -1,9 +1,7 @@
 #include "solitaire.h"
+#include "sol_draw.h"
 
-#define STATUS_MARGIN      12
-#define WASTE_FAN_OFF      12
-
-/* Drag state (Static keyword removed to allow external linkage) */
+/* Drag state (Defined here, externed in solitaire.h for sol_input.c to use) */
 BOOL  dragging = FALSE;
 CARD  drag_cards[52];
 int   drag_count = 0;
@@ -11,12 +9,6 @@ int   drag_from_type;
 int   drag_from_idx;
 int   drag_mouse_x, drag_mouse_y;
 int   drag_x_off, drag_y_off;
-
-#define SRC_WASTE  1
-#define SRC_TAB    2
-#define SRC_FOUND  3
-
-#define CARD_BACK_RED 54
 
 void OnTimer(HWND hwnd) {
     RECT rc;
@@ -88,7 +80,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         
         for (i = 0; i < show; i++) {
             int wx = wx_base + (i * WASTE_FAN_OFF);
-            int wy = Y_MARGIN + i; // Changed to a 1-pixel vertical step for subtlety
+            int wy = Y_MARGIN + i; 
             
             if (dragging && drag_from_type == SRC_WASTE && i == show - 1)
                 continue;
