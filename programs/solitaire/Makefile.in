@@ -13,4 +13,5 @@ SOURCES = \
     sol_input.c \
     sol_draw.c \
     sol_endgame.c \
+    sol_timer.c \
     solitaire.rc

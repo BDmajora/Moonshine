@@ -1,6 +1,7 @@
 #include <windows.h>
 #include "solitaire.h"
 #include "sol_input.h"
+#include "sol_timer.h" // Added timer dependency
 
 void OnMouseMove(HWND hwnd, int mx, int my) {
     if (!dragging) return;
@@ -11,6 +12,8 @@ void OnMouseMove(HWND hwnd, int mx, int my) {
 
 void OnLButtonDown(HWND hwnd, int mx, int my) {
     int i, col, row;
+
+    Timer_Start(); // FIX: Starts the clock on the very first click
 
     if (dragging) return;
 

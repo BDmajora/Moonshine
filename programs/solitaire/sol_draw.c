@@ -1,8 +1,8 @@
 #include "solitaire.h"
 #include "sol_draw.h"
+#include "sol_timer.h" // Added timer dependency
 
-/* 
- * Global Drag State Definition 
+/* * Global Drag State Definition 
  * (Allocates memory for variables declared 'extern' in solitaire.h)
  */
 BOOL  dragging = FALSE;
@@ -14,13 +14,16 @@ int   drag_mouse_x, drag_mouse_y;
 int   drag_x_off, drag_y_off;
 
 /**
- * OnTimer: Handles status bar updates by invalidating only the bottom area.
+ * OnTimer: Handles status bar updates. 
+ * Note: Only invalidates if the timer is actually running to save resources.
  */
 void OnTimer(HWND hwnd) {
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-    rc.top = rc.bottom - STATUS_BAR_HEIGHT;
-    InvalidateRect(hwnd, &rc, FALSE);
+    if (Timer_IsRunning()) {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        rc.top = rc.bottom - STATUS_BAR_HEIGHT;
+        InvalidateRect(hwnd, &rc, FALSE);
+    }
 }
 
 /**
@@ -58,8 +61,11 @@ void DrawBoard(HDC hdc, int width, int height) {
     hOldFont = (HFONT)SelectObject(hdc, hfont);
     SetBkMode(hdc, TRANSPARENT);
 
-    elapsed = (GetTickCount() - g_Game.start_tick) / 1000;
-    wsprintfW(buf, L"Score: %d  Time: %d", g_Game.score, (int)elapsed);
+    /* --- FIX: Use the new Timer Module --- */
+    elapsed = Timer_GetElapsed();
+    wsprintfW(buf, L"Score: %d  Time: %u", g_Game.score, elapsed);
+    /* ------------------------------------- */
+    
     rcText = rcStatus; 
     rcText.right -= STATUS_MARGIN;
     DrawTextW(hdc, buf, -1, &rcText, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
