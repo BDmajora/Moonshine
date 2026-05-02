@@ -19,6 +19,7 @@ typedef struct {
 extern BOOL g_endgame_active;
 
 void EndGame_Start(HWND hwnd);
+void EndGame_StartCheat(HWND hwnd);
 void EndGame_Stop(HWND hwnd);
 void EndGame_Tick(HWND hwnd);
 void EndGame_Draw(HDC hdc, int width, int height);

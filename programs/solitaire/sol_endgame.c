@@ -10,6 +10,7 @@ static int        window_w     = 600;
 static int        window_h     = 400;
 static int        bonus_score  = 0;
 static HWND       g_hwnd       = NULL;
+static BOOL       g_is_cheat   = FALSE; /* Flag to lock bonus at 0 */
 
 /* Mouse speed tracking */
 static int        last_mx       = -1;
@@ -48,6 +49,7 @@ void EndGame_Start(HWND hwnd)
     window_h = rc.bottom - STATUS_BAR_HEIGHT;
 
     g_endgame_active = TRUE;
+    g_is_cheat       = FALSE; /* Default to normal scoring */
     next_launch      = 0;
     bonus_score      = 0;
     last_mx = -1;
@@ -58,6 +60,13 @@ void EndGame_Start(HWND hwnd)
         bounce_cards[i].active = FALSE;
 
     SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
+}
+
+/* New function to start the animation with scoring disabled */
+void EndGame_StartCheat(HWND hwnd)
+{
+    EndGame_Start(hwnd);
+    g_is_cheat = TRUE; 
 }
 
 static void launch_card(void)
@@ -76,11 +85,10 @@ static void launch_card(void)
     bc->x      = (float)(X_MARGIN + (3 + found_idx) * X_SPACING);
     bc->y      = (float)(Y_MARGIN);
     
-    /* Horizontal velocity is randomized; vertical is fixed for the rhythm pattern */
     bc->vx     = (float)((rand() % 9) - 4); 
     if (bc->vx == 0) bc->vx = 2.0f;
     
-    bc->vy     = -7.0f; /* Fixed "pop" height */
+    bc->vy     = -7.0f; 
     bc->active = TRUE;
     
     next_launch++;
@@ -109,7 +117,6 @@ void EndGame_Tick(HWND hwnd)
     int total_steps;
     RECT rcStatus;
 
-    /* Declare all variables at the top for ISO C90 compliance */
     hdc = GetDC(hwnd); 
     total_steps = 1 + g_extra_steps;
     g_extra_steps = 0; 
@@ -123,23 +130,19 @@ void EndGame_Tick(HWND hwnd)
             bc = &bounce_cards[i];
             if (!bc->active) continue;
 
-            /* Physics calculation */
             bc->vy += GRAVITY; 
             bc->x  += bc->vx;
             bc->y  += bc->vy;
 
-            /* Floor collision */
             if (bc->y + 96 >= window_h) {
                 bc->y  = (float)(window_h - 96);
                 bc->vy = -(bc->vy * BOUNCE_DAMPEN);
                 if (bc->vy > -1.0f) bc->vy = 0;
             }
 
-            /* Draw directly to DC for every step to create the dense trail */
             cdtDraw(hdc, (int)bc->x, (int)bc->y, 
                     bc->card & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
 
-            /* Check if card is off-screen */
             if (bc->x + 71 < 0 || bc->x > window_w) {
                 bc->active = FALSE; 
             } else {
@@ -147,11 +150,13 @@ void EndGame_Tick(HWND hwnd)
             }
         }
 
-        /* Wait for current card to finish before launching the next foundation card */
         if (!any_moving) {
             if (next_launch < NUM_BOUNCE_CARDS) {
                 launch_card();
-                bonus_score += 5;
+                /* FIX: Only increment bonus if not in cheat mode */
+                if (!g_is_cheat) {
+                    bonus_score += 5;
+                }
             } else {
                 ReleaseDC(hwnd, hdc);
                 EndGame_Dismiss(hwnd);
@@ -162,7 +167,6 @@ void EndGame_Tick(HWND hwnd)
 
     ReleaseDC(hwnd, hdc);
     
-    /* Repaint the status bar area only */
     rcStatus.left = 0;
     rcStatus.top = window_h;
     rcStatus.right = window_w;

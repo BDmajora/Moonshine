@@ -4,6 +4,8 @@
 static int cardW, cardH;
 static UINT timer_id;
 
+/* Note: Ensure EndGame_StartCheat is declared in sol_endgame.h */
+
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     PAINTSTRUCT ps; HDC hdc; RECT rc; MINMAXINFO *mmi;
@@ -26,15 +28,22 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_SYSKEYDOWN:
+        /* Cheat Code: Alt + Shift + 2 */
         if (wp == '2' && (GetKeyState(VK_MENU) & 0x8000)
                       && (GetKeyState(VK_SHIFT) & 0x8000)) {
             int s, f;
+            
+            /* FIX: Lock game score to 0 */
+            g_Game.score = 0;
+
             for (s = 0; s < 4; s++) {
                 g_Game.found_top[s] = 13;
                 for (f = 0; f < 13; f++)
                     g_Game.foundation[s][f] = (CARD)((f * 4) + s) | CARD_FACEUP;
             }
-            EndGame_Start(hwnd);
+            
+            /* FIX: Use Cheat Start to lock bonus to 0 */
+            EndGame_StartCheat(hwnd);
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wp, lp);
@@ -70,7 +79,6 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_ERASEBKGND:
-        /* This prevents erasing the screen, leaving the trails intact */
         if (g_endgame_active) return 1; 
         return 0;
 
