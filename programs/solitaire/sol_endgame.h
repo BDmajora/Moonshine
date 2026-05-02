@@ -22,6 +22,7 @@ void EndGame_Start(HWND hwnd);
 void EndGame_Stop(HWND hwnd);
 void EndGame_Tick(HWND hwnd);
 void EndGame_Draw(HDC hdc, int width, int height);
+void EndGame_Dismiss(HWND hwnd);
 BOOL EndGame_CheckWin(void);
 
 #endif

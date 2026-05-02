@@ -26,7 +26,6 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_SYSKEYDOWN:
-        /* Alt+Shift+2 - instant win for testing */
         if (wp == '2' && (GetKeyState(VK_MENU) & 0x8000)
                       && (GetKeyState(VK_SHIFT) & 0x8000)) {
             int s, f;
@@ -36,13 +35,38 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                     g_Game.foundation[s][f] = (CARD)((f * 4) + s) | CARD_FACEUP;
             }
             EndGame_Start(hwnd);
-            InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wp, lp);
 
+    case WM_KEYDOWN:
+        if (g_endgame_active && wp == VK_ESCAPE) {
+            EndGame_Dismiss(hwnd);
+            return 0;
+        }
+        break;
+
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+        if (g_endgame_active) {
+            EndGame_Dismiss(hwnd);
+            return 0;
+        }
+        if (msg == WM_LBUTTONDOWN)
+            OnLButtonDown(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
+        break;
+
+    case WM_MOUSEMOVE:
+        if (!g_endgame_active)
+            OnMouseMove(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
+        break;
+
+    case WM_LBUTTONUP:
+        if (!g_endgame_active)
+            OnLButtonUp(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
+        break;
+
     case WM_ERASEBKGND:
-        /* Suppress background erase during endgame to allow streak trails */
         if (g_endgame_active) return 1;
         return 0;
 
@@ -56,18 +80,6 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         DrawBoard(hdc, rc.right, rc.bottom);
         EndPaint(hwnd, &ps);
-        break;
-
-    case WM_LBUTTONDOWN:
-        OnLButtonDown(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
-        break;
-
-    case WM_MOUSEMOVE:
-        OnMouseMove(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
-        break;
-
-    case WM_LBUTTONUP:
-        OnLButtonUp(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
         break;
 
     case WM_GETMINMAXINFO:
