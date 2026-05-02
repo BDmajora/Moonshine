@@ -57,8 +57,11 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_MOUSEMOVE:
-        if (!g_endgame_active)
+        if (g_endgame_active) {
+            EndGame_MouseMove((short)LOWORD(lp), (short)HIWORD(lp));
+        } else {
             OnMouseMove(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
+        }
         break;
 
     case WM_LBUTTONUP:
@@ -73,12 +76,16 @@ LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_PAINT:
         hdc = BeginPaint(hwnd, &ps);
         GetClientRect(hwnd, &rc);
+        
         if (!g_endgame_active) {
             HBRUSH hbr = CreateSolidBrush(SOL_BG_COLOR);
             FillRect(hdc, &rc, hbr);
             DeleteObject(hbr);
+            DrawBoard(hdc, rc.right, rc.bottom);
+        } else {
+            EndGame_Draw(hdc, rc.right, rc.bottom);
         }
-        DrawBoard(hdc, rc.right, rc.bottom);
+        
         EndPaint(hwnd, &ps);
         break;
 

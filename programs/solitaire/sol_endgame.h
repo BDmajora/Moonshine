@@ -25,4 +25,7 @@ void EndGame_Draw(HDC hdc, int width, int height);
 void EndGame_Dismiss(HWND hwnd);
 BOOL EndGame_CheckWin(void);
 
+/* New: Let the user control the card speed! */
+void EndGame_MouseMove(int mx, int my);
+
 #endif

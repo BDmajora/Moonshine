@@ -1,14 +1,15 @@
 #include "sol_endgame.h"
+#include <math.h>
 
 BOOL g_endgame_active = FALSE;
 
 static BounceCard bounce_cards[NUM_BOUNCE_CARDS];
 static int        next_launch  = 0;
-static DWORD      last_launch  = 0;
 static int        window_w     = 600;
 static int        window_h     = 400;
 static int        bonus_score  = 0;
 static HWND       g_hwnd       = NULL;
+static int        last_mx      = -1;
 
 BOOL EndGame_CheckWin(void)
 {
@@ -32,14 +33,11 @@ void EndGame_Start(HWND hwnd)
 
     g_endgame_active = TRUE;
     next_launch      = 0;
-    last_launch      = GetTickCount();
     bonus_score      = 0;
+    last_mx          = -1;
 
     for (i = 0; i < NUM_BOUNCE_CARDS; i++)
         bounce_cards[i].active = FALSE;
-
-    /* Clear the board immediately - fill with green */
-    InvalidateRect(hwnd, NULL, TRUE);
 
     SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
 }
@@ -55,20 +53,24 @@ void EndGame_Stop(HWND hwnd)
 static void launch_card(void)
 {
     BounceCard *bc;
-    int suit, face;
+    int suit, face, found_idx;
 
     if (next_launch >= NUM_BOUNCE_CARDS) return;
 
-    bc = &bounce_cards[next_launch++];
+    bc = &bounce_cards[next_launch];
 
-    suit = (next_launch - 1) % 4;
-    face = (next_launch - 1) / 4;
+    found_idx = next_launch % 4; 
+    suit = found_idx;
+    face = 13 - (next_launch / 4) - 1; 
+
     bc->card   = (CARD)((face * 4) + suit);
-    bc->x      = (float)(10 + (rand() % (window_w - 91)));
+    bc->x      = (float)(X_MARGIN + (3 + found_idx) * X_SPACING);
     bc->y      = (float)(Y_MARGIN);
-    bc->vx     = (float)((rand() % 9) - 4);
-    bc->vy     = (float)((rand() % 4) + 2);
+    bc->vx     = (found_idx < 2) ? -3.0f : 3.0f; 
+    bc->vy     = -2.0f; 
     bc->active = TRUE;
+    
+    next_launch++;
 }
 
 void EndGame_Dismiss(HWND hwnd)
@@ -86,20 +88,32 @@ void EndGame_Dismiss(HWND hwnd)
     }
 }
 
+void EndGame_MouseMove(int mx, int my)
+{
+    BounceCard *bc;
+    int dx;
+
+    /* Declarations must come before this check in C90 */
+    if (!g_endgame_active || next_launch == 0) return;
+    
+    bc = &bounce_cards[next_launch - 1];
+    if (bc->active) {
+        if (last_mx != -1) {
+            dx = mx - last_mx;
+            bc->vx += (float)dx * 0.05f;
+        }
+    }
+    last_mx = mx;
+}
+
 void EndGame_Tick(HWND hwnd)
 {
     int i;
-    DWORD now = GetTickCount();
+    BounceCard *bc;
     BOOL any_moving = FALSE;
 
-    if (next_launch < NUM_BOUNCE_CARDS && now - last_launch > 80) {
-        launch_card();
-        last_launch = now;
-        bonus_score += 5;
-    }
-
     for (i = 0; i < next_launch; i++) {
-        BounceCard *bc = &bounce_cards[i];
+        bc = &bounce_cards[i];
         if (!bc->active) continue;
 
         bc->vy += GRAVITY;
@@ -109,49 +123,49 @@ void EndGame_Tick(HWND hwnd)
         if (bc->y + 96 >= window_h) {
             bc->y  = (float)(window_h - 96);
             bc->vy = -(bc->vy * BOUNCE_DAMPEN);
-            bc->vx *= 0.95f;
             if (bc->vy > -1.5f) bc->vy = 0.0f;
+            if (bc->vy == 0.0f && fabsf(bc->vx) < 0.5f) {
+                bc->vx = (bc->x > window_w / 2) ? 1.0f : -1.0f;
+            }
         }
 
-        if (bc->x < 0) {
-            bc->x  = 0;
-            bc->vx = -bc->vx * BOUNCE_DAMPEN;
-        }
-        if (bc->x + 71 > window_w) {
-            bc->x  = (float)(window_w - 71);
-            bc->vx = -bc->vx * BOUNCE_DAMPEN;
-        }
-
-        if (bc->vy != 0.0f || fabsf(bc->vx) > 0.5f)
+        if (bc->x + 71 < 0 || bc->x > window_w) {
+            bc->active = FALSE; 
+        } else {
             any_moving = TRUE;
+        }
     }
 
-    /* Don't erase — leave trails like XP */
+    if (!any_moving) {
+        if (next_launch < NUM_BOUNCE_CARDS) {
+            launch_card();
+            bonus_score += 5;
+        } else {
+            EndGame_Dismiss(hwnd);
+            return;
+        }
+    }
+
     InvalidateRect(hwnd, NULL, FALSE);
-
-    if (next_launch >= NUM_BOUNCE_CARDS && !any_moving) {
-        EndGame_Dismiss(hwnd);
-    }
 }
 
 void EndGame_Draw(HDC hdc, int width, int height)
 {
     int i;
+    BounceCard *bc;
     HFONT hfont, hOldFont;
     RECT rcStatus, rcText;
     WCHAR buf[64];
 
     if (!g_endgame_active) return;
 
-    /* Draw bouncing cards */
     for (i = 0; i < next_launch; i++) {
-        BounceCard *bc = &bounce_cards[i];
-        if (!bc->active) continue;
+        bc = &bounce_cards[i];
+        if (!bc->active) continue; 
         cdtDraw(hdc, (int)bc->x, (int)bc->y,
                 bc->card & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 
-    /* Redraw status bar on top so it stays readable */
     rcStatus.left   = 0;
     rcStatus.top    = height - STATUS_BAR_HEIGHT;
     rcStatus.right  = width;
@@ -177,13 +191,11 @@ void EndGame_Draw(HDC hdc, int width, int height)
     hOldFont = (HFONT)SelectObject(hdc, hfont);
     SetBkMode(hdc, TRANSPARENT);
 
-    /* Left: Bonus and instruction */
     wsprintfW(buf, L"Bonus: %d  Press Esc or a mouse button to stop...", bonus_score);
     rcText = rcStatus;
     rcText.left += STATUS_MARGIN;
     DrawTextW(hdc, buf, -1, &rcText, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
-    /* Right: Score and Time */
     wsprintfW(buf, L"Score: %d  Time: %d",
               g_Game.score + bonus_score,
               (int)((GetTickCount() - g_Game.start_tick) / 1000));
