@@ -100,6 +100,8 @@ void DrawBoard(HDC hdc, int width, int height) {
     SetBkMode(hdc, TRANSPARENT);
 
     elapsed = Timer_GetElapsed();
+    
+    // FETCH THE SCORE DIRECTLY FROM THE GAME STATE
     wsprintfW(buf, L"Score: %d  Time: %u", g_Game.score, elapsed);
     
     rcText = rcStatus; 

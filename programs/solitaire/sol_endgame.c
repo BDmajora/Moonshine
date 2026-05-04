@@ -1,4 +1,7 @@
 #include "sol_endgame.h"
+#include "sol_layout.h"
+#include "solitaire.h"  // For g_Game
+#include "sol_timer.h"
 #include <math.h>
 #include <stdlib.h>
 
@@ -8,11 +11,9 @@ static BounceCard bounce_cards[NUM_BOUNCE_CARDS];
 static int        next_launch  = 0;
 static int        window_w     = 600;
 static int        window_h     = 400;
-static int        bonus_score  = 0;
 static HWND       g_hwnd       = NULL;
-static BOOL       g_is_cheat   = FALSE; /* Flag to lock bonus at 0 */
+static int        g_final_bonus = 0; // Calculated once at start
 
-/* Mouse speed tracking */
 static int        last_mx       = -1;
 static int        last_my       = -1;
 static int        g_extra_steps = 0;
@@ -49,24 +50,29 @@ void EndGame_Start(HWND hwnd)
     window_h = rc.bottom - STATUS_BAR_HEIGHT;
 
     g_endgame_active = TRUE;
-    g_is_cheat       = FALSE; /* Default to normal scoring */
     next_launch      = 0;
-    bonus_score      = 0;
-    last_mx = -1;
-    last_my = -1;
-    g_extra_steps = 0;
+    last_mx          = -1;
+    last_my          = -1;
+    g_extra_steps    = 0;
 
     for (i = 0; i < NUM_BOUNCE_CARDS; i++)
         bounce_cards[i].active = FALSE;
 
-    SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
-}
+    // USE SOLITAIRE - Simple If/Else for bonus calculation
+    // A legitimate win always has a non-zero score. 
+    // Input_CheatWin() explicitly sets g_Game.score = 0 before calling this.
+    if (g_Game.score == 0) { 
+        g_final_bonus = 0;
+    } else {
+        DWORD elapsed = Timer_GetElapsed();
+        if (elapsed >= 30) {
+            g_final_bonus = 700000 / elapsed; // Standard Solitaire time bonus formula
+        } else {
+            g_final_bonus = 0;
+        }
+    }
 
-/* New function to start the animation with scoring disabled */
-void EndGame_StartCheat(HWND hwnd)
-{
-    EndGame_Start(hwnd);
-    g_is_cheat = TRUE; 
+    SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
 }
 
 static void launch_card(void)
@@ -134,8 +140,8 @@ void EndGame_Tick(HWND hwnd)
             bc->x  += bc->vx;
             bc->y  += bc->vy;
 
-            if (bc->y + 96 >= window_h) {
-                bc->y  = (float)(window_h - 96);
+            if (bc->y + CARD_HEIGHT >= window_h) {
+                bc->y  = (float)(window_h - CARD_HEIGHT);
                 bc->vy = -(bc->vy * BOUNCE_DAMPEN);
                 if (bc->vy > -1.0f) bc->vy = 0;
             }
@@ -143,7 +149,7 @@ void EndGame_Tick(HWND hwnd)
             cdtDraw(hdc, (int)bc->x, (int)bc->y, 
                     bc->card & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
 
-            if (bc->x + 71 < 0 || bc->x > window_w) {
+            if (bc->x + CARD_WIDTH < 0 || bc->x > window_w) {
                 bc->active = FALSE; 
             } else {
                 any_moving = TRUE;
@@ -153,10 +159,7 @@ void EndGame_Tick(HWND hwnd)
         if (!any_moving) {
             if (next_launch < NUM_BOUNCE_CARDS) {
                 launch_card();
-                /* FIX: Only increment bonus if not in cheat mode */
-                if (!g_is_cheat) {
-                    bonus_score += 5;
-                }
+                // Notice there is no bonus manipulation happening here anymore
             } else {
                 ReleaseDC(hwnd, hdc);
                 EndGame_Dismiss(hwnd);
@@ -191,7 +194,8 @@ void EndGame_Draw(HDC hdc, int width, int height)
     SetBkMode(hdc, OPAQUE);
     SetBkColor(hdc, RGB(255, 255, 255));
 
-    wsprintfW(buf, L"Bonus: %d", bonus_score);
+    // Uses the locked, single-calculated bonus
+    wsprintfW(buf, L"Bonus: %d", g_final_bonus);
     DrawTextW(hdc, buf, -1, &rcStatus, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
     SelectObject(hdc, hOldFont);

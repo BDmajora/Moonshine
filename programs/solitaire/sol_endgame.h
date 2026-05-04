@@ -3,10 +3,11 @@
 
 #include "solitaire.h"
 
+// Animation timers and physics limits
 #define ENDGAME_TIMER_ID   2
-#define ENDGAME_TIMER_MS   16      /* 16ms gives a smoother ~60 FPS update */
-#define GRAVITY            0.8f    /* Matches your 0.5 to 1.0 recommendation */
-#define BOUNCE_DAMPEN      0.75f   /* Retains 75% of velocity (your -0.7 to -0.8 range) */
+#define ENDGAME_TIMER_MS   16      
+#define GRAVITY            0.8f    
+#define BOUNCE_DAMPEN      0.75f   
 #define NUM_BOUNCE_CARDS   52
 
 typedef struct {
@@ -18,6 +19,7 @@ typedef struct {
 
 extern BOOL g_endgame_active;
 
+// Animation lifecycle and control
 void EndGame_Start(HWND hwnd);
 void EndGame_StartCheat(HWND hwnd);
 void EndGame_Stop(HWND hwnd);
