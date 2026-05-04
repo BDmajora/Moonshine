@@ -13,7 +13,6 @@
 #define MODE_DECKO         7  /* Green Circle - click to reshuffle waste into stock */
 
 /* Core Drawing Functions */
-void OnTimer(HWND hwnd);
 void DrawBoard(HDC hdc, int width, int height);
 
 #endif /* SOL_DRAW_H */

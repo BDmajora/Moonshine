@@ -1,7 +1,7 @@
 #include "solitaire.h"
 #include "sol_draw.h"
 #include "sol_input.h" // Needed for DragState
-#include "sol_timer.h"
+#include "sol_timer.h" // Needed for Timer_GetElapsed()
 
 /* Global Card Dimensions */
 int g_CardWidth = 71;
@@ -67,15 +67,6 @@ static void DrawWastePile(HDC hdc)
 
         /* Let the DLL handle the rounded corners; we already cleared the background to green */
         cdtDraw(hdc, wx, wy, g_Game.waste[fan_idx] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
-    }
-}
-
-void OnTimer(HWND hwnd) {
-    if (Timer_IsRunning()) {
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        rc.top = rc.bottom - STATUS_BAR_HEIGHT;
-        InvalidateRect(hwnd, &rc, FALSE);
     }
 }
 

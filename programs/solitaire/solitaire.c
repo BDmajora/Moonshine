@@ -2,9 +2,22 @@
 #include "sol_input.h"
 #include "sol_endgame.h"
 #include "sol_res.h"  /* New Header */
+#include "sol_draw.h" /* Needed for DrawBoard */
+#include "sol_timer.h"/* Needed for Timer_IsRunning */
 
 static int cardW, cardH;
 static UINT timer_id;
+
+/* Event handler for updating the status bar UI. 
+   Called by the input module's timer dispatcher. */
+void OnTimer(HWND hwnd) {
+    if (Timer_IsRunning()) {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        rc.top = rc.bottom - STATUS_BAR_HEIGHT;
+        InvalidateRect(hwnd, &rc, FALSE);
+    }
+}
 
 LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     PAINTSTRUCT ps;
