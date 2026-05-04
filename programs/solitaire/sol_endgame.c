@@ -1,6 +1,6 @@
 #include "sol_endgame.h"
 #include "sol_layout.h"
-#include "solitaire.h"  // For g_Game
+#include "solitaire.h"
 #include "sol_timer.h"
 #include <math.h>
 #include <stdlib.h>
@@ -8,16 +8,17 @@
 BOOL g_endgame_active = FALSE;
 
 static BounceCard bounce_cards[NUM_BOUNCE_CARDS];
-static int        next_launch  = 0;
-static int        window_w     = 600;
-static int        window_h     = 400;
-static HWND       g_hwnd       = NULL;
-static int        g_final_bonus = 0; // Calculated once at start
+static int        next_launch   = 0;
+static int        window_w      = 600;
+static int        window_h      = 400;
+static HWND       g_hwnd        = NULL;
+static int        g_final_bonus = 0;
 
 static int        last_mx       = -1;
 static int        last_my       = -1;
 static int        g_extra_steps = 0;
 
+/* Internal: Stop timer and reset state */
 void EndGame_Stop(HWND hwnd)
 {
     if (!g_endgame_active) return;
@@ -26,6 +27,7 @@ void EndGame_Stop(HWND hwnd)
     InvalidateRect(hwnd, NULL, TRUE);
 }
 
+/* Prompt user for new game or exit */
 void EndGame_Dismiss(HWND hwnd)
 {
     if (!g_endgame_active) return;
@@ -38,6 +40,18 @@ void EndGame_Dismiss(HWND hwnd)
     }
 }
 
+/* FIX: Added 'void' to fulfill prototype requirements */
+static int CalculateBonus(void) 
+{
+    DWORD elapsed; /* FIX: Declaration moved to top for C90 compliance */
+
+    if (g_Game.score == 0) return 0; 
+    
+    elapsed = Timer_GetElapsed();
+    return (elapsed >= 30) ? (700000 / elapsed) : 0;
+}
+
+/* Initialize victory sequence */
 void EndGame_Start(HWND hwnd)
 {
     RECT rc;
@@ -54,27 +68,16 @@ void EndGame_Start(HWND hwnd)
     last_mx          = -1;
     last_my          = -1;
     g_extra_steps    = 0;
+    g_final_bonus    = CalculateBonus();
 
-    for (i = 0; i < NUM_BOUNCE_CARDS; i++)
+    for (i = 0; i < NUM_BOUNCE_CARDS; i++) {
         bounce_cards[i].active = FALSE;
-
-    // USE SOLITAIRE - Simple If/Else for bonus calculation
-    // A legitimate win always has a non-zero score. 
-    // Input_CheatWin() explicitly sets g_Game.score = 0 before calling this.
-    if (g_Game.score == 0) { 
-        g_final_bonus = 0;
-    } else {
-        DWORD elapsed = Timer_GetElapsed();
-        if (elapsed >= 30) {
-            g_final_bonus = 700000 / elapsed; // Standard Solitaire time bonus formula
-        } else {
-            g_final_bonus = 0;
-        }
     }
 
     SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
 }
 
+/* Initialize the next bouncing card */
 static void launch_card(void)
 {
     BounceCard *bc;
@@ -100,6 +103,7 @@ static void launch_card(void)
     next_launch++;
 }
 
+/* Track mouse movement to speed up animation */
 void EndGame_MouseMove(int mx, int my)
 {
     if (!g_endgame_active) return;
@@ -114,13 +118,13 @@ void EndGame_MouseMove(int mx, int my)
     last_my = my;
 }
 
+/* Physics and rendering update */
 void EndGame_Tick(HWND hwnd)
 {
-    int i, step;
+    int i, step, total_steps;
     BounceCard *bc;
     BOOL any_moving;
     HDC hdc;
-    int total_steps;
     RECT rcStatus;
 
     hdc = GetDC(hwnd); 
@@ -159,7 +163,6 @@ void EndGame_Tick(HWND hwnd)
         if (!any_moving) {
             if (next_launch < NUM_BOUNCE_CARDS) {
                 launch_card();
-                // Notice there is no bonus manipulation happening here anymore
             } else {
                 ReleaseDC(hwnd, hdc);
                 EndGame_Dismiss(hwnd);
@@ -177,14 +180,17 @@ void EndGame_Tick(HWND hwnd)
     InvalidateRect(hwnd, &rcStatus, TRUE);
 }
 
+/* Render final score and bonus in the status bar */
 void EndGame_Draw(HDC hdc, int width, int height)
 {
     HFONT hfont, hOldFont;
     RECT rcStatus;
     WCHAR buf[64];
 
-    rcStatus.left = 0; rcStatus.top = window_h;
-    rcStatus.right = width; rcStatus.bottom = height;
+    rcStatus.left = 0; 
+    rcStatus.top = window_h;
+    rcStatus.right = width; 
+    rcStatus.bottom = height;
 
     hfont = CreateFontW(16, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
@@ -194,7 +200,6 @@ void EndGame_Draw(HDC hdc, int width, int height)
     SetBkMode(hdc, OPAQUE);
     SetBkColor(hdc, RGB(255, 255, 255));
 
-    // Uses the locked, single-calculated bonus
     wsprintfW(buf, L"Bonus: %d", g_final_bonus);
     DrawTextW(hdc, buf, -1, &rcStatus, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
 
@@ -202,10 +207,12 @@ void EndGame_Draw(HDC hdc, int width, int height)
     DeleteObject(hfont);
 }
 
+/* Verify if all cards are in the foundation piles */
 BOOL EndGame_CheckWin(void)
 {
     int i, total = 0;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < 4; i++) {
         total += g_Game.found_top[i];
+    }
     return total == 52;
 }

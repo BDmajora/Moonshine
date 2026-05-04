@@ -9,6 +9,7 @@ int  Card_Face(CARD c);
 BOOL Card_IsRed(CARD c);
 
 // Array manipulation
+void Card_GenerateDeck(CARD *deck);
 void Card_Shuffle(CARD *arr, int n);
 
-#endif
+#endif /* SOL_CARDS_H */
