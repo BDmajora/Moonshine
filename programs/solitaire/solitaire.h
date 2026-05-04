@@ -39,11 +39,8 @@ extern int   drag_from_idx;
 extern int   drag_mouse_x, drag_mouse_y;
 extern int   drag_x_off, drag_y_off;
 
-void DrawBoard(HDC hdc, int width, int height);
-void OnLButtonDown(HWND hwnd, int mx, int my);
-void OnMouseMove(HWND hwnd, int mx, int my);
-void OnLButtonUp(HWND hwnd, int mx, int my);
-void OnTimer(HWND hwnd);
+/* BACK TO OLD NAME */
+void DrawBoard(HDC hdc, int width, int height); 
 
 extern BOOL WINAPI cdtInit(int *width, int *height);
 extern void WINAPI cdtTerm(void);

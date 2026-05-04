@@ -1,165 +1,119 @@
 #include "solitaire.h"
+#include "sol_input.h"
 #include "sol_endgame.h"
 
+/* Global Card Dimensions (assigned during WM_CREATE) */
 static int cardW, cardH;
 static UINT timer_id;
 
-/* Note: Ensure EndGame_StartCheat is declared in sol_endgame.h */
-
-LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-{
-    PAINTSTRUCT ps; HDC hdc; RECT rc; MINMAXINFO *mmi;
+LRESULT CALLBACK SolWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    PAINTSTRUCT ps;
+    HDC hdc;
+    RECT rc;
+    MINMAXINFO *mmi;
 
     switch(msg) {
-    case WM_CREATE:
-        if(!cdtInit(&cardW, &cardH)) {
-            MessageBoxW(hwnd, L"Failed to load cards.dll", L"Error", MB_ICONERROR);
-            return -1;
-        }
-        Game_Init();
-        timer_id = SetTimer(hwnd, 1, 1000, NULL);
-        break;
-
-    case WM_TIMER:
-        if (wp == ENDGAME_TIMER_ID)
-            EndGame_Tick(hwnd);
-        else
-            OnTimer(hwnd);
-        break;
-
-    case WM_SYSKEYDOWN:
-        /* Cheat Code: Alt + Shift + 2 */
-        if (wp == '2' && (GetKeyState(VK_MENU) & 0x8000)
-                      && (GetKeyState(VK_SHIFT) & 0x8000)) {
-            int s, f;
-            
-            /* FIX: Lock game score to 0 */
-            g_Game.score = 0;
-
-            for (s = 0; s < 4; s++) {
-                g_Game.found_top[s] = 13;
-                for (f = 0; f < 13; f++)
-                    g_Game.foundation[s][f] = (CARD)((f * 4) + s) | CARD_FACEUP;
+        case WM_CREATE:
+            /* Restoration: Specific error handling for cards.dll */
+            if(!cdtInit(&cardW, &cardH)) {
+                MessageBoxW(hwnd, L"Failed to load cards.dll", L"Error", MB_ICONERROR);
+                return -1;
             }
-            
-            /* FIX: Use Cheat Start to lock bonus to 0 */
-            EndGame_StartCheat(hwnd);
-            return 0;
-        }
-        return DefWindowProcW(hwnd, msg, wp, lp);
-
-    case WM_KEYDOWN:
-        if (g_endgame_active && wp == VK_ESCAPE) {
-            EndGame_Dismiss(hwnd);
-            return 0;
-        }
-        break;
-
-    case WM_LBUTTONDOWN:
-    case WM_RBUTTONDOWN:
-        if (g_endgame_active) {
-            EndGame_Dismiss(hwnd);
-            return 0;
-        }
-        if (msg == WM_LBUTTONDOWN)
-            OnLButtonDown(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
-        break;
-
-    case WM_MOUSEMOVE:
-        if (g_endgame_active) {
-            EndGame_MouseMove((short)LOWORD(lp), (short)HIWORD(lp));
-        } else {
-            OnMouseMove(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
-        }
-        break;
-
-    case WM_LBUTTONUP:
-        if (!g_endgame_active)
-            OnLButtonUp(hwnd, (short)LOWORD(lp), (short)HIWORD(lp));
-        break;
-
-    case WM_ERASEBKGND:
-        if (g_endgame_active) return 1; 
-        return 0;
-
-    case WM_PAINT:
-        hdc = BeginPaint(hwnd, &ps);
-        GetClientRect(hwnd, &rc);
-        
-        if (!g_endgame_active) {
-            HBRUSH hbr = CreateSolidBrush(SOL_BG_COLOR);
-            FillRect(hdc, &rc, hbr);
-            DeleteObject(hbr);
-            DrawBoard(hdc, rc.right, rc.bottom);
-        } else {
-            EndGame_Draw(hdc, rc.right, rc.bottom);
-        }
-        
-        EndPaint(hwnd, &ps);
-        break;
-
-    case WM_GETMINMAXINFO:
-        mmi = (MINMAXINFO*)lp;
-        mmi->ptMinTrackSize.x = 560;
-        mmi->ptMinTrackSize.y = 400;
-        break;
-
-    case WM_COMMAND:
-        switch(LOWORD(wp)) {
-        case IDM_GAME_EXIT:
-            PostQuitMessage(0);
-            break;
-        case IDM_GAME_DEAL:
-            EndGame_Stop(hwnd);
             Game_Init();
-            InvalidateRect(hwnd, NULL, TRUE);
-            break;
-        }
-        break;
+            timer_id = SetTimer(hwnd, 1, 1000, NULL);
+            return 0;
 
-    case WM_DESTROY:
-        KillTimer(hwnd, timer_id);
-        cdtTerm();
-        PostQuitMessage(0);
-        break;
+        case WM_TIMER:
+            /* High-level dispatcher handles both Game and EndGame timers */
+            Input_OnTimer(hwnd, wp);
+            return 0;
 
-    default:
-        return DefWindowProcW(hwnd, msg, wp, lp);
+        case WM_SYSKEYDOWN:
+        case WM_KEYDOWN:
+            /* Restoration: Dispatcher handles Cheat (Alt+Shift+2) and ESC during EndGame */
+            if (Input_OnKeyboard(hwnd, msg, wp, lp)) return 0;
+            return DefWindowProcW(hwnd, msg, wp, lp);
+
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_MOUSEMOVE:
+            /* Dispatcher handles mouse input and EndGame dismissal/movement */
+            Input_OnMouse(hwnd, msg, wp, lp);
+            return 0;
+
+        case WM_ERASEBKGND:
+            /* Restoration: Critical for flicker-free endgame animation */
+            if (g_endgame_active) return 1; 
+            return 0;
+
+        case WM_PAINT:
+            hdc = BeginPaint(hwnd, &ps);
+            GetClientRect(hwnd, &rc);
+            
+            /* Since DrawBoard (in sol_draw.c) calls EndGame_Draw internally, 
+               we just call DrawBoard to keep the logic unified. */
+            DrawBoard(hdc, rc.right, rc.bottom);
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+
+        case WM_GETMINMAXINFO:
+            /* Restoration: Prevents the layout from collapsing if the user resizes */
+            mmi = (MINMAXINFO*)lp;
+            mmi->ptMinTrackSize.x = 560;
+            mmi->ptMinTrackSize.y = 400;
+            return 0;
+
+        case WM_COMMAND:
+            Input_OnCommand(hwnd, LOWORD(wp));
+            return 0;
+
+        case WM_DESTROY:
+            KillTimer(hwnd, timer_id);
+            cdtTerm();
+            PostQuitMessage(0);
+            return 0;
     }
-    return 0;
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, LPWSTR cmd, int show)
-{
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
+    MSG msg;
+    HWND hwnd;
     WNDCLASSW wc = {0};
-    HWND hwnd; MSG msg;
     RECT rc;
+    /* Restoration: Specific Window Style (No resizing, fixed menu) */
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
+    /* Restoration: Calculate exact window size needed for the card layout */
     rc.left = 0; rc.top = 0;
     rc.right = X_MARGIN + (7 * X_SPACING);
     rc.bottom = 384;
     AdjustWindowRect(&rc, style, TRUE);
 
     wc.lpfnWndProc   = SolWndProc;
-    wc.hInstance     = hInst;
+    wc.hInstance     = hInstance;
     wc.lpszClassName = L"SolitaireWnd";
     wc.lpszMenuName  = MAKEINTRESOURCEW(IDR_MAINMENU);
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    wc.hIcon         = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
+    wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_SOLITAIRE));
     RegisterClassW(&wc);
 
     hwnd = CreateWindowW(L"SolitaireWnd", L"Solitaire", style,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        rc.right - rc.left, rc.bottom - rc.top,
-        NULL, NULL, hInst, NULL);
+                         CW_USEDEFAULT, CW_USEDEFAULT,
+                         rc.right - rc.left, rc.bottom - rc.top,
+                         NULL, NULL, hInstance, NULL);
 
-    ShowWindow(hwnd, show);
+    if (!hwnd) return 0;
+
+    ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
 
-    while(GetMessageW(&msg, NULL, 0, 0)) {
+    while (GetMessageW(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
     return (int)msg.wParam;
 }

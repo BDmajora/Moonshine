@@ -1,7 +1,76 @@
-#include <windows.h>
 #include "solitaire.h"
 #include "sol_input.h"
-#include "sol_timer.h" // Added timer dependency
+#include "sol_endgame.h"
+#include "sol_timer.h" // Handles Timer_Start()
+
+/* ==========================================================================
+   SECTION 1: High-Level Dispatchers
+   ========================================================================== */
+
+void Input_OnMouse(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    short mx = (short)LOWORD(lp);
+    short my = (short)HIWORD(lp);
+
+    /* 1. Global EndGame Override */
+    if (g_endgame_active) {
+        if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN) {
+            EndGame_Dismiss(hwnd);
+        } else if (msg == WM_MOUSEMOVE) {
+            EndGame_MouseMove(mx, my);
+        }
+        return;
+    }
+
+    /* 2. Standard Game Input */
+    switch (msg) {
+        case WM_LBUTTONDOWN: OnLButtonDown(hwnd, mx, my); break;
+        case WM_LBUTTONUP:   OnLButtonUp(hwnd, mx, my);   break;
+        case WM_MOUSEMOVE:   OnMouseMove(hwnd, mx, my);   break;
+    }
+}
+
+BOOL Input_OnKeyboard(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    /* Handle Cheat: Alt + Shift + 2 */
+    if (msg == WM_SYSKEYDOWN && wp == '2') {
+        if ((GetKeyState(VK_MENU) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            Input_CheatWin(hwnd);
+            return TRUE;
+        }
+    }
+
+    /* Handle Escape during EndGame */
+    if (g_endgame_active && msg == WM_KEYDOWN && wp == VK_ESCAPE) {
+        EndGame_Dismiss(hwnd);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+void Input_OnCommand(HWND hwnd, int menuId) {
+    switch (menuId) {
+        case IDM_GAME_EXIT:
+            PostQuitMessage(0);
+            break;
+        case IDM_GAME_DEAL:
+            EndGame_Stop(hwnd);
+            Game_Init();
+            InvalidateRect(hwnd, NULL, TRUE);
+            break;
+    }
+}
+
+void Input_OnTimer(HWND hwnd, WPARAM timerId) {
+    if (timerId == ENDGAME_TIMER_ID) {
+        EndGame_Tick(hwnd);
+    } else {
+        OnTimer(hwnd);
+    }
+}
+
+/* ==========================================================================
+   SECTION 2: Specific Game Logic Handlers
+   ========================================================================== */
 
 void OnMouseMove(HWND hwnd, int mx, int my) {
     if (!dragging) return;
@@ -13,7 +82,7 @@ void OnMouseMove(HWND hwnd, int mx, int my) {
 void OnLButtonDown(HWND hwnd, int mx, int my) {
     int i, col, row;
 
-    Timer_Start(); // FIX: Starts the clock on the very first click
+    Timer_Start(); // Starts the clock on the very first click
 
     if (dragging) return;
 
@@ -118,11 +187,11 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
             g_Game.score += 10;
             dropped = TRUE;
 
-            /* WIN CHECK: 52 cards in foundations means the game is over */
+            /* WIN CHECK */
             if (g_Game.found_top[0] + g_Game.found_top[1] + 
                 g_Game.found_top[2] + g_Game.found_top[3] == 52) {
                 KillTimer(hwnd, 1);
-                MessageBoxW(hwnd, L"Congratulations! You won!", L"Solitaire", MB_OK | MB_ICONINFORMATION);
+                EndGame_Start(hwnd); // Trigger the card-jumping animation
             }
             break;
         }
@@ -164,4 +233,21 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
     }
 
     InvalidateRect(hwnd, NULL, FALSE);
+}
+
+/* ==========================================================================
+   SECTION 3: Utility / Cheats
+   ========================================================================== */
+
+void Input_CheatWin(HWND hwnd) {
+    int s, f;
+    g_Game.score = 0;
+
+    for (s = 0; s < 4; s++) {
+        g_Game.found_top[s] = 13;
+        for (f = 0; f < 13; f++) {
+            g_Game.foundation[s][f] = (CARD)((f * 4) + s) | CARD_FACEUP;
+        }
+    }
+    EndGame_Start(hwnd);
 }
