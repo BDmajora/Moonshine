@@ -1,15 +1,11 @@
 #include "solitaire.h"
 #include "sol_draw.h"
-#include "sol_input.h" // Needed for DragState
-#include "sol_timer.h" // Needed for Timer_GetElapsed()
-
-/* Global Card Dimensions */
-int g_CardWidth = 71;
-int g_CardHeight = 96;
+#include "sol_input.h"  // For DragState access
+#include "sol_timer.h"  // For Timer_GetElapsed()
+#include "sol_layout.h" // For X_MARGIN, Y_MARGIN, offsets, etc.
 
 /**
  * DrawStockPile: Isolated rendering for the source deck.
- * This works because it draws bottom-to-top with small offsets.
  */
 static void DrawStockPile(HDC hdc)
 {
@@ -28,14 +24,14 @@ static void DrawStockPile(HDC hdc)
 }
 
 /**
- * DrawWastePile: Simplified to match Stock Pile logic.
- * No manual clipping. No complex loops. Just bottom-to-top rendering.
+ * DrawWastePile: Logic for the "fanned" waste stack.
+ * Skips the top card if it is currently being dragged.
  */
 static void DrawWastePile(HDC hdc)
 {
     int i, show_count, hidden_count, base_offset;
     int wx_base = X_MARGIN + X_SPACING;
-    const DragState* drag = Input_GetDragInfo(); // Fetch state safely
+    const DragState* drag = Input_GetDragInfo(); 
 
     if (g_Game.waste_top <= 0) return;
 
@@ -44,10 +40,8 @@ static void DrawWastePile(HDC hdc)
 
     /* 1. Draw the staircase base first */
     if (hidden_count > 0) {
-        // Draw bottom card
         cdtDraw(hdc, wx_base, Y_MARGIN, g_Game.waste[0] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
         
-        // Draw a middle "step" if the stack is deep enough
         if (hidden_count > 5)
             cdtDraw(hdc, wx_base + 2, Y_MARGIN + 2, g_Game.waste[hidden_count/2] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
         
@@ -62,14 +56,17 @@ static void DrawWastePile(HDC hdc)
         int wx = (wx_base + base_offset) + (i * WASTE_FAN_OFF);
         int wy = Y_MARGIN + base_offset;
 
+        // SRP: Don't draw the card if the Input module says it's being dragged
         if (drag->is_dragging && drag->from_type == SRC_WASTE && fan_idx == g_Game.waste_top - 1)
             continue;
 
-        /* Let the DLL handle the rounded corners; we already cleared the background to green */
         cdtDraw(hdc, wx, wy, g_Game.waste[fan_idx] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 }
 
+/**
+ * DrawBoard: Main orchestration of the rendering process.
+ */
 void DrawBoard(HDC hdc, int width, int height) {
     int i, col, row, y;
     WCHAR buf[128];
@@ -78,16 +75,15 @@ void DrawBoard(HDC hdc, int width, int height) {
     HPEN hpen, hOldPen;
     HFONT hfont, hOldFont;
     DWORD elapsed;
-    const DragState* drag = Input_GetDragInfo(); // Fetch state safely
+    const DragState* drag = Input_GetDragInfo(); 
 
-    /* 1. MANDATORY: Clear the entire board to green. 
-       This fixes the black artifacts behind rounded corners. */
+    /* 1. Background Setup */
     SetRect(&rcBoard, 0, 0, width, height - STATUS_BAR_HEIGHT);
     hbrGreen = CreateSolidBrush(SOL_BG_COLOR);
     FillRect(hdc, &rcBoard, hbrGreen);
     DeleteObject(hbrGreen);
 
-    /* 2. Draw the Status Bar */
+    /* 2. Status Bar Rendering */
     rcStatus.left = 0; 
     rcStatus.top = height - STATUS_BAR_HEIGHT;
     rcStatus.right = width; 
@@ -120,7 +116,7 @@ void DrawBoard(HDC hdc, int width, int height) {
     SelectObject(hdc, hOldFont);
     DeleteObject(hfont);
 
-    /* 3. Draw the Piles */
+    /* 3. Game Piles */
     DrawStockPile(hdc);
     DrawWastePile(hdc);
 
@@ -147,7 +143,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         for (row = 0; row < g_Game.tab_top[col]; row++) {
             CARD c = g_Game.tableau[col][row];
             
-            /* If dragging, don't draw the cards that are in the drag stack */
+            /* Check Input state: skip cards currently held by mouse */
             if (drag->is_dragging && drag->from_type == SRC_TAB && drag->from_idx == col
                     && row >= g_Game.tab_top[col] - drag->count)
                 break;
@@ -162,7 +158,7 @@ void DrawBoard(HDC hdc, int width, int height) {
         }
     }
 
-    /* 4. Draw Dragging Stack last */
+    /* 4. Dragging Overlay */
     if (drag->is_dragging) {
         int dx = drag->mouse_x - drag->x_off;
         int dy = drag->mouse_y - drag->y_off;
@@ -171,5 +167,6 @@ void DrawBoard(HDC hdc, int width, int height) {
                     drag->cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 
+    /* 5. Cleanup / Effects */
     EndGame_Draw(hdc, width, height);
 }
