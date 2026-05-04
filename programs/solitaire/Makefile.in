@@ -2,7 +2,7 @@ MODULE        = solitaire.exe
 IMPORTS       = cards user32 gdi32 advapi32 comctl32
 EXTRADLLFLAGS = -mwindows -municode
 
-# Link against the cards.dll headers in the ReactOS/Wine tree
+# Link against the cards.dll headers
 EXTRAINCL = -I$(top_srcdir)/dlls/cards
 
 SOURCES = \
