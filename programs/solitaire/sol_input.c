@@ -1,11 +1,13 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+
 #include "solitaire.h"
 #include "sol_input.h"
 #include "sol_endgame.h"
 #include "sol_timer.h"
 #include "sol_layout.h"
 #include "sol_score.h"
-
-/* Removed windowsx.h to satisfy Wine source constraints */
 
 static DragState g_Drag = {0};
 
@@ -19,10 +21,101 @@ static void DoDeal(HWND hwnd) {
     InvalidateRect(hwnd, NULL, TRUE);
 }
 
+/* 
+ * Robust File Finder: Searches current dir, then climbs up 
+ * to 4 levels to find the project root where AUTHORS/LICENSE live.
+ */
+static FILE* OpenProjectFile(const char* filename) {
+    FILE *f = NULL;
+    char path[MAX_PATH];
+    char prefix[MAX_PATH] = "";
+    int i;
+
+    for (i = 0; i < 5; i++) {
+        snprintf(path, sizeof(path), "%s%s", prefix, filename);
+        f = fopen(path, "r");
+        if (f) return f;
+        
+        /* Append another "../" to the search prefix */
+        strcat(prefix, "../");
+    }
+    return NULL;
+}
+
+/* SRP: Handles the specific logic of the About Dialog */
+static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            HWND hList = GetDlgItem(hDlg, IDC_ABOUT_AUTHORS);
+            FILE *f = OpenProjectFile("AUTHORS");
+            if (f) {
+                char line[256];
+                while (fgets(line, sizeof(line), f)) {
+                    wchar_t wLine[256];
+                    MultiByteToWideChar(CP_UTF8, 0, line, -1, wLine, 256);
+                    SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)wLine);
+                }
+                fclose(f);
+            }
+            return TRUE;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL) {
+                EndDialog(hDlg, LOWORD(wp));
+                return TRUE;
+            }
+            if (LOWORD(wp) == IDC_ABOUT_LICENSE) {
+                FILE *f = OpenProjectFile("LICENSE");
+                if (f) {
+                    long size;
+                    char *buf;
+                    int wSize;
+                    wchar_t *wBuf;
+
+                    fseek(f, 0, SEEK_END);
+                    size = ftell(f);
+                    fseek(f, 0, SEEK_SET);
+
+                    buf = malloc(size + 1);
+                    if (buf) {
+                        fread(buf, 1, size, f);
+                        buf[size] = '\0';
+
+                        wSize = MultiByteToWideChar(CP_UTF8, 0, buf, -1, NULL, 0);
+                        wBuf = malloc(wSize * sizeof(wchar_t));
+                        if (wBuf) {
+                            MultiByteToWideChar(CP_UTF8, 0, buf, -1, wBuf, wSize);
+                            MessageBoxW(hDlg, wBuf, L"Licence", MB_OK);
+                            free(wBuf);
+                        }
+                        free(buf);
+                    }
+                    fclose(f);
+                } else {
+                    /* If this triggers, the LICENSE file isn't in any of the expected parents */
+                    MessageBoxW(hDlg, L"Critical: LICENSE file not found in project tree.", L"Error", MB_OK | MB_ICONERROR);
+                }
+            }
+            break;
+    }
+    return FALSE;
+}
+
+static void Input_ShowAboutDialog(HWND hwnd) {
+    DialogBoxW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDD_ABOUT), hwnd, AboutDlgProc);
+}
+
 void Input_OnCommand(HWND hwnd, int menuId) {
     switch (menuId) {
-        case IDM_GAME_EXIT: PostQuitMessage(0); break;
-        case IDM_GAME_DEAL: DoDeal(hwnd);        break;
+        case IDM_GAME_EXIT: 
+            PostQuitMessage(0); 
+            break;
+        case IDM_GAME_DEAL: 
+            DoDeal(hwnd);        
+            break;
+        case IDM_HELP_ABOUT:
+            Input_ShowAboutDialog(hwnd);
+            break;
     }
 }
 
@@ -31,14 +124,12 @@ BOOL Input_OnKeyboard(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         DoDeal(hwnd);
         return TRUE;
     }
-
     if (msg == WM_SYSKEYDOWN && wp == '2') {
         if ((GetKeyState(VK_MENU) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
             Input_CheatWin(hwnd);
             return TRUE;
         }
     }
-
     if (g_endgame_active && msg == WM_KEYDOWN && wp == VK_ESCAPE) {
         EndGame_Dismiss(hwnd);
         return TRUE;
@@ -47,16 +138,13 @@ BOOL Input_OnKeyboard(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 void Input_OnMouse(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    /* Use standard LOWORD/HIWORD with short casts instead of windowsx.h macros */
     short mx = (short)LOWORD(lp);
     short my = (short)HIWORD(lp);
-
     if (g_endgame_active) {
         if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN) EndGame_Dismiss(hwnd);
         else if (msg == WM_MOUSEMOVE) EndGame_MouseMove(mx, my);
         return;
     }
-
     switch (msg) {
         case WM_LBUTTONDOWN: OnLButtonDown(hwnd, mx, my); break;
         case WM_LBUTTONUP:   OnLButtonUp(hwnd, mx, my);   break;
@@ -79,14 +167,12 @@ void OnMouseMove(HWND hwnd, int mx, int my) {
 void OnLButtonDown(HWND hwnd, int mx, int my) {
     int i, col, row;
     Timer_Start(); 
-
     if (g_Drag.is_dragging) return;
-
     if (mx >= X_MARGIN && mx < X_MARGIN + CARD_WIDTH && 
         my >= Y_MARGIN && my < Y_MARGIN + CARD_HEIGHT) {
         if (g_Game.stock_top > 0) {
             int draw = (g_Game.stock_top >= 3) ? 3 : g_Game.stock_top;
-            for (i = 0; i < draw; i++) /* i declared at top */
+            for (i = 0; i < draw; i++)
                 g_Game.waste[g_Game.waste_top++] = g_Game.stock[--g_Game.stock_top] | CARD_FACEUP;
         } else {
             while (g_Game.waste_top > 0)
@@ -95,7 +181,6 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
         InvalidateRect(hwnd, NULL, FALSE);
         return;
     }
-
     if (g_Game.waste_top > 0) {
         int show = g_Game.waste_top < 3 ? g_Game.waste_top : 3;
         int wx = X_MARGIN + X_SPACING + ((show - 1) * WASTE_FAN_OFF);
@@ -112,7 +197,6 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
             return;
         }
     }
-
     for (col = 0; col < 7; col++) {
         row = Layout_HitTabCard(col, mx, my); 
         if (row != -1 && (g_Game.tableau[col][row] & CARD_FACEUP)) {
@@ -134,17 +218,13 @@ void OnLButtonDown(HWND hwnd, int mx, int my) {
 }
 
 void OnLButtonUp(HWND hwnd, int mx, int my) {
-    /* C90 fix: Declarations must strictly precede code */
     int i, col;
     BOOL dropped = FALSE;
     CARD top_card;
-
     if (!g_Drag.is_dragging) return;
-
     top_card = g_Drag.cards[0];
     g_Drag.is_dragging = FALSE;
     ReleaseCapture();
-
     for (i = 0; i < 4; i++) {
         int fx = X_MARGIN + (3 + i) * X_SPACING;
         if (g_Drag.count == 1 && mx >= fx && mx < fx + CARD_WIDTH && 
@@ -158,7 +238,6 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
             break;
         }
     }
-
     if (!dropped) {
         for (col = 0; col < 7; col++) {
             int cx = Layout_GetTabX(col);
@@ -173,7 +252,6 @@ void OnLButtonUp(HWND hwnd, int mx, int my) {
             }
         }
     }
-
     if (dropped && g_Drag.from_type == SRC_TAB) {
         int old_col = g_Drag.from_idx;
         int top = g_Game.tab_top[old_col];

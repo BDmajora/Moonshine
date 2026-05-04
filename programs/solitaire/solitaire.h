@@ -2,11 +2,25 @@
 #define SOLITAIRE_H
 
 #define IDI_SOLITAIRE      100
+#define IDR_MAINMENU       200
+
 #define IDM_GAME_DEAL      101
 #define IDM_GAME_EXIT      102
-#define IDM_HELP_ABOUT     103
+#define IDM_GAME_UNDO      105
+#define IDM_GAME_OPTIONS   106
+#define IDM_GAME_BACKS     107
+
 #define IDM_HELP_CONTENTS  104
-#define IDR_MAINMENU       200
+#define IDM_HELP_ABOUT     103
+
+/* Dialog & Control IDs */
+#define IDD_ABOUT          300
+#define IDC_ABOUT_AUTHORS  301
+#define IDC_ABOUT_LICENSE  302
+
+#ifndef IDC_STATIC
+#define IDC_STATIC         -1
+#endif
 
 #define SOL_BG_COLOR       RGB(0,128,0)
 #define STATUS_BAR_HEIGHT  17
@@ -39,7 +53,6 @@ extern int   drag_from_idx;
 extern int   drag_mouse_x, drag_mouse_y;
 extern int   drag_x_off, drag_y_off;
 
-/* BACK TO OLD NAME */
 void DrawBoard(HDC hdc, int width, int height); 
 
 extern BOOL WINAPI cdtInit(int *width, int *height);
