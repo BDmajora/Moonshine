@@ -16,4 +16,5 @@ SOURCES = \
     sol_timer.c \
     sol_res.c \
     sol_score.c \
+    sol_about.c \
     solitaire.rc
