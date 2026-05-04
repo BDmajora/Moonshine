@@ -8,11 +8,6 @@
 #define WASTE_FAN_OFF      12
 #define CARD_BACK_RED      54
 
-/* Drag Source Types */
-#define SRC_WASTE          1
-#define SRC_TAB            2
-#define SRC_FOUND          3
-
 /* Standard cards.dll modes for the special empty deck markers */
 #define MODE_DECKX         6  /* Red X - no cards left to deal */
 #define MODE_DECKO         7  /* Green Circle - click to reshuffle waste into stock */

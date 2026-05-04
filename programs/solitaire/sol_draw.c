@@ -1,19 +1,11 @@
 #include "solitaire.h"
 #include "sol_draw.h"
+#include "sol_input.h" // Needed for DragState
 #include "sol_timer.h"
 
 /* Global Card Dimensions */
 int g_CardWidth = 71;
 int g_CardHeight = 96;
-
-/* Global Drag State Definition */
-BOOL   dragging = FALSE;
-CARD   drag_cards[52];
-int    drag_count = 0;
-int    drag_from_type;
-int    drag_from_idx;
-int    drag_mouse_x, drag_mouse_y;
-int    drag_x_off, drag_y_off;
 
 /**
  * DrawStockPile: Isolated rendering for the source deck.
@@ -43,6 +35,7 @@ static void DrawWastePile(HDC hdc)
 {
     int i, show_count, hidden_count, base_offset;
     int wx_base = X_MARGIN + X_SPACING;
+    const DragState* drag = Input_GetDragInfo(); // Fetch state safely
 
     if (g_Game.waste_top <= 0) return;
 
@@ -69,7 +62,7 @@ static void DrawWastePile(HDC hdc)
         int wx = (wx_base + base_offset) + (i * WASTE_FAN_OFF);
         int wy = Y_MARGIN + base_offset;
 
-        if (dragging && drag_from_type == SRC_WASTE && fan_idx == g_Game.waste_top - 1)
+        if (drag->is_dragging && drag->from_type == SRC_WASTE && fan_idx == g_Game.waste_top - 1)
             continue;
 
         /* Let the DLL handle the rounded corners; we already cleared the background to green */
@@ -94,6 +87,7 @@ void DrawBoard(HDC hdc, int width, int height) {
     HPEN hpen, hOldPen;
     HFONT hfont, hOldFont;
     DWORD elapsed;
+    const DragState* drag = Input_GetDragInfo(); // Fetch state safely
 
     /* 1. MANDATORY: Clear the entire board to green. 
        This fixes the black artifacts behind rounded corners. */
@@ -163,8 +157,8 @@ void DrawBoard(HDC hdc, int width, int height) {
             CARD c = g_Game.tableau[col][row];
             
             /* If dragging, don't draw the cards that are in the drag stack */
-            if (dragging && drag_from_type == SRC_TAB && drag_from_idx == col
-                    && row >= g_Game.tab_top[col] - drag_count)
+            if (drag->is_dragging && drag->from_type == SRC_TAB && drag->from_idx == col
+                    && row >= g_Game.tab_top[col] - drag->count)
                 break;
 
             if (c & CARD_FACEUP) {
@@ -178,12 +172,12 @@ void DrawBoard(HDC hdc, int width, int height) {
     }
 
     /* 4. Draw Dragging Stack last */
-    if (dragging) {
-        int dx = drag_mouse_x - drag_x_off;
-        int dy = drag_mouse_y - drag_y_off;
-        for (i = 0; i < drag_count; i++)
+    if (drag->is_dragging) {
+        int dx = drag->mouse_x - drag->x_off;
+        int dy = drag->mouse_y - drag->y_off;
+        for (i = 0; i < drag->count; i++)
             cdtDraw(hdc, dx, dy + (i * FACE_UP_OFF), 
-                    drag_cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
+                    drag->cards[i] & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
     }
 
     EndGame_Draw(hdc, width, height);
