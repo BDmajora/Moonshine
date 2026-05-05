@@ -8,6 +8,9 @@ SOURCES = \
     calc_memory.c \
     calc_ops.c \
     calc_input.c \
-    calc_ui.c \
+    calc_widgets.c \
+    calc_create.c \
+    calc_layout.c \
+    calc_update.c \
     calc_panel.c \
     calc.rc
