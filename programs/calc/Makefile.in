@@ -3,7 +3,11 @@ IMPORTS       = user32 gdi32 advapi32 comdlg32 shell32 comctl32 uxtheme
 EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
-    main.c \
+    calc_cmdSci.c \
+    calc_cmdDispatch.c \
+    calc_wndproc.c \
+    calc_appMenu.c \
+    calc_about.c \
     calc_state.c \
     calc_memory.c \
     calc_ops.c \
