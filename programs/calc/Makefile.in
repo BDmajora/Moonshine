@@ -4,5 +4,10 @@ EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
     main.c \
-    calc_logic.c \
+    calc_state.c \
+    calc_memory.c \
+    calc_ops.c \
+    calc_input.c \
+    calc_ui.c \
+    calc_panel.c \
     calc.rc
