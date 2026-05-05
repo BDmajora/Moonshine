@@ -7,6 +7,20 @@
 #include "calc_panel.h"
 #include "calc_about.h"
 
+/* ── Sizing helper ────────────────────────────────────────────────── */
+static void force_window_resize(HWND hwnd) {
+    int cw = mode_client_width();
+    int ch = mode_client_height();
+    int ww, wh;
+    DWORD dwStyle = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+    get_window_size(cw, ch, dwStyle, &ww, &wh);
+    
+    /* FIX: SetWindowPos with SWP_FRAMECHANGED forces the window manager to 
+       re-calculate the frame and redrawing immediately, stopping the "jiggle" bug. */
+    SetWindowPos(hwnd, NULL, 0, 0, ww, wh, 
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
 /* ── Keyboard handling ───────────────────────────────────────────── */
 static void on_keydown(HWND hwnd, WPARAM vk, BOOL ctrl, BOOL alt) {
     if (alt) {
@@ -65,9 +79,14 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CREATE:
             ui_create_controls(hwnd);
             break;
+
         case WM_SIZE:
             ui_update_layout(hwnd);
+            /* FIX: Tell the window to repaint immediately after layout logic 
+               runs to prevent white gaps during manual resizing. */
+            InvalidateRect(hwnd, NULL, TRUE);
             break;
+
         case WM_COMMAND: {
             int id    = (int)LOWORD(wp);
             int notif = (int)HIWORD(wp);
@@ -75,21 +94,36 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 About_ShowDialog(hwnd);
                 break;
             }
-            if (notif == CBN_SELCHANGE || notif == 0 || notif == BN_CLICKED)
+            if (notif == CBN_SELCHANGE || notif == 0 || notif == BN_CLICKED) {
                 on_command(hwnd, id);
+                
+                /* FIX: Check if we just switched a View mode. If so, trigger the 
+                   frame resize helper so the user doesn't have to "jiggle" the window. */
+                if (id >= ID_VIEW_STANDARD && id <= ID_VIEW_STATISTICS) {
+                    force_window_resize(hwnd);
+                }
+            }
             if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE)
                 panel_unit_convert(hwnd);
             break;
         }
+
+        /* FIX: Prevent Wine/Windows from clearing the background with a 
+           white brush before the app draws. This kills the flickering. */
+        case WM_ERASEBKGND:
+            return 1; 
+
         case WM_KEYDOWN: {
             BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             BOOL alt  = (GetKeyState(VK_MENU)    & 0x8000) != 0;
             on_keydown(hwnd, wp, ctrl, alt);
             break;
         }
+
         case WM_CHAR:
             on_char(hwnd, (WCHAR)wp);
             break;
+
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
@@ -101,12 +135,14 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mmi->ptMinTrackSize.y = wh;
             return 0;
         }
+
         case WM_DESTROY:
             if (hBtnFont)   DeleteObject(hBtnFont);
             if (hDispFont)  DeleteObject(hDispFont);
             if (hSmallFont) DeleteObject(hSmallFont);
             PostQuitMessage(0);
             break;
+
         default:
             return DefWindowProcW(hwnd, msg, wp, lp);
     }
@@ -120,7 +156,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     HWND       hwnd;
     MSG        msg;
     HMENU      hMenu;
-    DWORD      dwStyle = WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX;
+    
+    /* FIX: WS_CLIPCHILDREN is the most important change. It stops the parent 
+       window from painting over the buttons, which eliminates the white flickering 
+       and unresponsiveness during movement in Wine. */
+    DWORD      dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN) & ~WS_MAXIMIZEBOX;
+    
     int        cw, ch, ww, wh;
     INITCOMMONCONTROLSEX icc;
 
@@ -134,10 +175,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"CalcWnd";
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    
-    /* Load custom icon from resources */
     wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_CALC));
-    
     wc.style         = CS_HREDRAW | CS_VREDRAW;
     RegisterClassW(&wc);
 
@@ -162,7 +200,5 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
             DispatchMessageW(&msg);
         }
     }
-    (void)hPrev;
-    (void)cmdline;
     return (int)msg.wParam;
 }
