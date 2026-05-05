@@ -41,7 +41,7 @@ FONT 8, "MS Shell Dlg"
 BEGIN
     ICON          IDI_APPLICATION, IDC_STATIC, 10, 10, 21, 20
     LTEXT         "Calculator", IDC_STATIC, 40, 10, 100, 8
-    LTEXT         "Developed for Wine by Brody Durand", IDC_STATIC, 40, 22, 200, 8
+    LTEXT         "Developed for Wine by BDmajora", IDC_STATIC, 40, 22, 200, 8
     LTEXT         "Running on wine-11.0", IDC_STATIC, 40, 34, 200, 8
     CONTROL       "", IDC_STATIC, "Static", SS_ETCHEDHORZ, 10, 50, 230, 1
     LTEXT         "Wine was brought to you by:", IDC_STATIC, 10, 60, 200, 8
