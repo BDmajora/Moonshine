@@ -65,40 +65,31 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CREATE:
             ui_create_controls(hwnd);
             break;
-
         case WM_SIZE:
             ui_update_layout(hwnd);
             break;
-
         case WM_COMMAND: {
             int id    = (int)LOWORD(wp);
             int notif = (int)HIWORD(wp);
-
-            /* Special case for About Dialog */
             if (id == ID_HELP_ABOUT) {
                 About_ShowDialog(hwnd);
                 break;
             }
-
             if (notif == CBN_SELCHANGE || notif == 0 || notif == BN_CLICKED)
                 on_command(hwnd, id);
-                
             if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE)
                 panel_unit_convert(hwnd);
             break;
         }
-
         case WM_KEYDOWN: {
             BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             BOOL alt  = (GetKeyState(VK_MENU)    & 0x8000) != 0;
             on_keydown(hwnd, wp, ctrl, alt);
             break;
         }
-
         case WM_CHAR:
             on_char(hwnd, (WCHAR)wp);
             break;
-
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
@@ -110,14 +101,12 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mmi->ptMinTrackSize.y = wh;
             return 0;
         }
-
         case WM_DESTROY:
             if (hBtnFont)   DeleteObject(hBtnFont);
             if (hDispFont)  DeleteObject(hDispFont);
             if (hSmallFont) DeleteObject(hSmallFont);
             PostQuitMessage(0);
             break;
-
         default:
             return DefWindowProcW(hwnd, msg, wp, lp);
     }
@@ -145,7 +134,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"CalcWnd";
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    wc.hIcon         = LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
+    
+    /* Load custom icon from resources */
+    wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_CALC));
+    
     wc.style         = CS_HREDRAW | CS_VREDRAW;
     RegisterClassW(&wc);
 

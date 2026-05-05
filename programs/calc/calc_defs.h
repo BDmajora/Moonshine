@@ -13,6 +13,9 @@
 #define IDC_ABOUT_AUTHORS 500
 #define IDC_ABOUT_LICENSE 501
 
+/* Icon ID */
+#define IDI_CALC          10
+
 /* ── Modes ─────────────────────────────────────────────────────────── */
 #define MODE_STANDARD     0
 #define MODE_SCIENTIFIC   1
@@ -66,7 +69,6 @@
 #define MAX_DISPLAY       64
 
 /* ─────────────────────── Control IDs ─────────────────────────────── */
-
 #define ID_DISPLAY        200
 #define ID_DISP_BITS      201
 #define ID_DISP_HISTORY   202
