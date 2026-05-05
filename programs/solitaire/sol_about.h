@@ -3,7 +3,7 @@
 
 #include <windows.h>
 
-/* Launches the About Solitaire dialog */
+// Launch the modal About Solitaire dialog box
 void About_ShowDialog(HWND hwnd);
 
-#endif /* SOL_ABOUT_H */
+#endif // SOL_ABOUT_H

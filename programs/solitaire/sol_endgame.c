@@ -5,8 +5,10 @@
 #include <math.h>
 #include <stdlib.h>
 
+// Global flag for victory animation status
 BOOL g_endgame_active = FALSE;
 
+// Internal state for bouncing cards and window dimensions
 static BounceCard bounce_cards[NUM_BOUNCE_CARDS];
 static int        next_launch   = 0;
 static int        window_w      = 600;
@@ -14,11 +16,12 @@ static int        window_h      = 400;
 static HWND       g_hwnd        = NULL;
 static int        g_final_bonus = 0;
 
+// Movement tracking for animation acceleration
 static int        last_mx       = -1;
 static int        last_my       = -1;
 static int        g_extra_steps = 0;
 
-/* Internal: Stop timer and reset state */
+// Reset animation state and kill the game timer
 void EndGame_Stop(HWND hwnd)
 {
     if (!g_endgame_active) return;
@@ -27,7 +30,7 @@ void EndGame_Stop(HWND hwnd)
     InvalidateRect(hwnd, NULL, TRUE);
 }
 
-/* Prompt user for new game or exit */
+// Handle user choice to restart or exit after victory
 void EndGame_Dismiss(HWND hwnd)
 {
     if (!g_endgame_active) return;
@@ -40,18 +43,16 @@ void EndGame_Dismiss(HWND hwnd)
     }
 }
 
-/* FIX: Added 'void' to fulfill prototype requirements */
+// Calculate time-based score bonus upon winning
 static int CalculateBonus(void) 
 {
-    DWORD elapsed; /* FIX: Declaration moved to top for C90 compliance */
-
+    DWORD elapsed; 
     if (g_Game.score == 0) return 0; 
-    
     elapsed = Timer_GetElapsed();
     return (elapsed >= 30) ? (700000 / elapsed) : 0;
 }
 
-/* Initialize victory sequence */
+// Initialize victory sequence parameters and start timer
 void EndGame_Start(HWND hwnd)
 {
     RECT rc;
@@ -77,7 +78,7 @@ void EndGame_Start(HWND hwnd)
     SetTimer(hwnd, ENDGAME_TIMER_ID, ENDGAME_TIMER_MS, NULL);
 }
 
-/* Initialize the next bouncing card */
+// Spawn the next card from the foundation piles
 static void launch_card(void)
 {
     BounceCard *bc;
@@ -103,7 +104,7 @@ static void launch_card(void)
     next_launch++;
 }
 
-/* Track mouse movement to speed up animation */
+// Accelerate animation based on mouse travel distance
 void EndGame_MouseMove(int mx, int my)
 {
     if (!g_endgame_active) return;
@@ -118,7 +119,7 @@ void EndGame_MouseMove(int mx, int my)
     last_my = my;
 }
 
-/* Physics and rendering update */
+// Process physics steps and render cards to device context
 void EndGame_Tick(HWND hwnd)
 {
     int i, step, total_steps;
@@ -144,6 +145,7 @@ void EndGame_Tick(HWND hwnd)
             bc->x  += bc->vx;
             bc->y  += bc->vy;
 
+            // Bounce card off bottom of window
             if (bc->y + CARD_HEIGHT >= window_h) {
                 bc->y  = (float)(window_h - CARD_HEIGHT);
                 bc->vy = -(bc->vy * BOUNCE_DAMPEN);
@@ -153,6 +155,7 @@ void EndGame_Tick(HWND hwnd)
             cdtDraw(hdc, (int)bc->x, (int)bc->y, 
                     bc->card & ~CARD_FACEUP, MODE_FACEUP, SOL_BG_COLOR);
 
+            // Check if card has exited horizontal bounds
             if (bc->x + CARD_WIDTH < 0 || bc->x > window_w) {
                 bc->active = FALSE; 
             } else {
@@ -160,6 +163,7 @@ void EndGame_Tick(HWND hwnd)
             }
         }
 
+        // Launch next card or conclude animation
         if (!any_moving) {
             if (next_launch < NUM_BOUNCE_CARDS) {
                 launch_card();
@@ -173,6 +177,7 @@ void EndGame_Tick(HWND hwnd)
 
     ReleaseDC(hwnd, hdc);
     
+    // Invalidate status bar for bonus updates
     rcStatus.left = 0;
     rcStatus.top = window_h;
     rcStatus.right = window_w;
@@ -180,7 +185,7 @@ void EndGame_Tick(HWND hwnd)
     InvalidateRect(hwnd, &rcStatus, TRUE);
 }
 
-/* Render final score and bonus in the status bar */
+// Display calculated bonus in the status bar area
 void EndGame_Draw(HDC hdc, int width, int height)
 {
     HFONT hfont, hOldFont;
@@ -207,7 +212,7 @@ void EndGame_Draw(HDC hdc, int width, int height)
     DeleteObject(hfont);
 }
 
-/* Verify if all cards are in the foundation piles */
+// Verify if foundation piles are complete
 BOOL EndGame_CheckWin(void)
 {
     int i, total = 0;

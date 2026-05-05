@@ -29,4 +29,4 @@ void EndGame_Dismiss(HWND hwnd);
 BOOL EndGame_CheckWin(void);
 void EndGame_MouseMove(int mx, int my);
 
-#endif
+#endif // SOL_ENDGAME_H

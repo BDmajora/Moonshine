@@ -3,27 +3,16 @@
 
 #include <windows.h>
 
-/**
- * Timer_Start: Marks the beginning of the game. 
- * Should be called on the first valid mouse click.
- */
+// Starts the timer on first interaction
 void  Timer_Start(void);
 
-/**
- * Timer_Reset: Resets the clock to zero and stops it.
- * Should be called when a new game is dealt.
- */
+// Stops and resets the timer for a new game
 void  Timer_Reset(void);
 
-/**
- * Timer_GetElapsed: Returns the seconds passed since Timer_Start.
- * Returns 0 if the timer hasn't started yet.
- */
+// Returns seconds elapsed since timer started
 DWORD Timer_GetElapsed(void);
 
-/**
- * Timer_IsRunning: Checks if the game clock is active.
- */
+// Returns true if the timer is currently active
 BOOL  Timer_IsRunning(void);
 
-#endif
+#endif // SOL_TIMER_H

@@ -2,16 +2,17 @@
 #include <commctrl.h>
 #include "solitaire.h"
 
-/* Use the ID from the header */
+// Application icon
 IDI_SOLITAIRE ICON "solitaire.ico"
 
+// Menu definition
 IDR_MAINMENU MENU
 BEGIN
     POPUP "&Game"
     BEGIN
-        MENUITEM "&Deal\tF2",      IDM_GAME_DEAL
+        MENUITEM "&Deal\tF2",       IDM_GAME_DEAL
         MENUITEM SEPARATOR
-        MENUITEM "E&xit",          IDM_GAME_EXIT
+        MENUITEM "E&xit",           IDM_GAME_EXIT
     END
     POPUP "&Help"
     BEGIN
@@ -19,7 +20,7 @@ BEGIN
     END
 END
 
-/* Version Information */
+// Version metadata
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION    1,0,0,0
 PRODUCTVERSION 1,0,0,0
@@ -47,7 +48,7 @@ BEGIN
     END
 END
 
-/* The custom Wine-style About Dialog */
+// About dialog
 IDD_ABOUT DIALOGEX 0, 0, 250, 180
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "About Solitaire"
@@ -64,4 +65,4 @@ BEGIN
     DEFPUSHBUTTON "OK", IDOK, 180, 155, 60, 14
 END
 
-/* Blank line required below to avoid EOF warnings */
+// Required EOF newline

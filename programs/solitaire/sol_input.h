@@ -29,10 +29,7 @@ BOOL Input_OnKeyboard(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 void Input_OnCommand(HWND hwnd, int menuId);
 void Input_OnTimer(HWND hwnd, WPARAM timerId);
 
-/* Internal game action handlers */
-void OnLButtonDown(HWND hwnd, int mx, int my);
-void OnMouseMove(HWND hwnd, int mx, int my);
-void OnLButtonUp(HWND hwnd, int mx, int my);
+/* External game action handlers */
 void OnTimer(HWND hwnd);
 
 /* Cheat / Utility logic */

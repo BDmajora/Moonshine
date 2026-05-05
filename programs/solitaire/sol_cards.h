@@ -12,4 +12,4 @@ BOOL Card_IsRed(CARD c);
 void Card_GenerateDeck(CARD *deck);
 void Card_Shuffle(CARD *arr, int n);
 
-#endif /* SOL_CARDS_H */
+#endif // SOL_CARDS_H

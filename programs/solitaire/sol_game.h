@@ -28,4 +28,4 @@ void Game_Init(void);
 BOOL Game_CanDropTab(CARD c, int col);
 BOOL Game_CanDropFound(CARD c, int f);
 
-#endif /* SOL_GAME_H */
+#endif // SOL_GAME_H

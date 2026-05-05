@@ -15,4 +15,4 @@
 // Main rendering entry point
 void DrawBoard(HDC hdc, int width, int height);
 
-#endif
+#endif // SOL_DRAW_H

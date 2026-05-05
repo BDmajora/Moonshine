@@ -3,11 +3,11 @@
 
 #include <windows.h>
 
-/* Centralized Card Dimensions */
+// Card dimensions
 #define CARD_WIDTH      71
 #define CARD_HEIGHT     96
 
-/* Table Layout Constants */
+// Layout constants
 #define X_MARGIN        10
 #define Y_MARGIN        7
 #define X_SPACING       79
@@ -15,10 +15,10 @@
 #define FACE_DOWN_OFF   3
 #define FACE_UP_OFF     19
 
-/* Function Prototypes */
+// Prototypes
 int  Layout_GetTabX(int col);
 int  Layout_GetTabCardY(int col, int row);
 int  Layout_HitTabCard(int col, int mx, int my);
 BOOL Layout_CheckHit(int mx, int my, int cx, int cy);
 
-#endif /* SOL_LAYOUT_H */
+#endif // SOL_LAYOUT_H
