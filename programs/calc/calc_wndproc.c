@@ -1,3 +1,4 @@
+#include "calc_wndproc.h"
 #include <windows.h>
 #include <commctrl.h>
 #include <wchar.h>
@@ -7,19 +8,8 @@
 #include "calc_panel.h"
 #include "calc_about.h"
 
-/* ── Sizing helper ────────────────────────────────────────────────── */
-static void force_window_resize(HWND hwnd) {
-    int cw = mode_client_width();
-    int ch = mode_client_height();
-    int ww, wh;
-    DWORD dwStyle = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
-    get_window_size(cw, ch, dwStyle, &ww, &wh);
-    
-    /* FIX: SetWindowPos with SWP_FRAMECHANGED forces the window manager to 
-       re-calculate the frame and redrawing immediately, stopping the "jiggle" bug. */
-    SetWindowPos(hwnd, NULL, 0, 0, ww, wh, 
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-}
+extern int g_mode;
+extern int g_panel;
 
 /* ── Keyboard handling ───────────────────────────────────────────── */
 static void on_keydown(HWND hwnd, WPARAM vk, BOOL ctrl, BOOL alt) {
@@ -81,36 +71,40 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_SIZE:
+            /* Use DeferWindowPos inside ui_update_layout if possible to reduce redraws */
             ui_update_layout(hwnd);
-            /* FIX: Tell the window to repaint immediately after layout logic 
-               runs to prevent white gaps during manual resizing. */
-            InvalidateRect(hwnd, NULL, TRUE);
+            /* Redraw the entire window to ensure the new grid doesn't leave artifacts */
+            RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
             break;
 
         case WM_COMMAND: {
             int id    = (int)LOWORD(wp);
             int notif = (int)HIWORD(wp);
+            
             if (id == ID_HELP_ABOUT) {
                 About_ShowDialog(hwnd);
                 break;
             }
+            
             if (notif == CBN_SELCHANGE || notif == 0 || notif == BN_CLICKED) {
                 on_command(hwnd, id);
                 
-                /* FIX: Check if we just switched a View mode. If so, trigger the 
-                   frame resize helper so the user doesn't have to "jiggle" the window. */
-                if (id >= ID_VIEW_STANDARD && id <= ID_VIEW_STATISTICS) {
-                    force_window_resize(hwnd);
+                /* Trigger centralized resize logic */
+                if ((id >= ID_VIEW_STANDARD && id <= ID_VIEW_STATISTICS) ||
+                    (id == ID_PANEL_UNIT || id == ID_PANEL_DATE)) {
+                    apply_window_size(hwnd, g_mode, g_panel);
                 }
             }
-            if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE)
+            
+            if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE) {
                 panel_unit_convert(hwnd);
+            }
             break;
         }
 
-        /* FIX: Prevent Wine/Windows from clearing the background with a 
-           white brush before the app draws. This kills the flickering. */
         case WM_ERASEBKGND:
+            /* Return 1 to tell Windows we handled background clearing.
+               Prevents the "white flash" during resizing. */
             return 1; 
 
         case WM_KEYDOWN: {
@@ -127,16 +121,18 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
-            int mw = (g_mode == MODE_STANDARD ? 280 : 420);
-            int mh = 380;
-            int ww, wh;
-            get_window_size(mw, mh, style, &ww, &wh);
+            int cw, ch, ww, wh;
+            
+            get_required_client_size(g_mode, g_panel, &cw, &ch);
+            get_window_size(cw, ch, style, &ww, &wh);
+            
             mmi->ptMinTrackSize.x = ww;
             mmi->ptMinTrackSize.y = wh;
             return 0;
         }
 
         case WM_DESTROY:
+            /* Clean up GDI fonts properly */
             if (hBtnFont)   DeleteObject(hBtnFont);
             if (hDispFont)  DeleteObject(hDispFont);
             if (hSmallFont) DeleteObject(hSmallFont);
@@ -157,12 +153,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     MSG        msg;
     HMENU      hMenu;
     
-    /* FIX: WS_CLIPCHILDREN is the most important change. It stops the parent 
-       window from painting over the buttons, which eliminates the white flickering 
-       and unresponsiveness during movement in Wine. */
-    DWORD      dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN) & ~WS_MAXIMIZEBOX;
+    /* WS_CLIPCHILDREN: CRITICAL for eliminating flicker.
+       WS_CLIPSIBLINGS: Ensures child windows don't draw over each other. */
+    DWORD dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS) & ~WS_MAXIMIZEBOX;
     
-    int        cw, ch, ww, wh;
+    int cw, ch, ww, wh;
     INITCOMMONCONTROLSEX icc;
 
     icc.dwSize = sizeof(icc);
@@ -172,6 +167,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     ZeroMemory(&wc, sizeof(wc));
     wc.lpfnWndProc   = CalcWndProc;
     wc.hInstance     = hInstance;
+    /* Use the system brush for the background */
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"CalcWnd";
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
@@ -180,8 +176,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     RegisterClassW(&wc);
 
     hMenu = create_menu();
-    cw = mode_client_width();
-    ch = mode_client_height();
+    
+    get_required_client_size(g_mode, g_panel, &cw, &ch);
     get_window_size(cw, ch, dwStyle, &ww, &wh);
 
     hwnd = CreateWindowW(L"CalcWnd", L"Calculator",

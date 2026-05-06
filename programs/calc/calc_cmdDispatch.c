@@ -7,22 +7,24 @@
 #include "calc_logic.h"
 #include "calc_ui.h"
 #include "calc_panel.h"
+#include "calc_appMenu.h"
 
 /* ── WM_COMMAND dispatcher ───────────────────────────────────────── */
 void on_command(HWND hwnd, int id) {
 
     /* ── Mode switching ── */
     if (id >= ID_VIEW_STANDARD && id <= ID_VIEW_STATISTICS) {
-        DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
-        int new_mode = id - ID_VIEW_STANDARD;
-        int cw, ch, ww, wh;
-        g_mode = new_mode;
-        cw = mode_client_width();
-        ch = mode_client_height();
-        get_window_size(cw, ch, style, &ww, &wh);
-        SetWindowPos(hwnd, NULL, 0, 0, ww, wh, SWP_NOMOVE | SWP_NOZORDER);
+        g_mode = id - ID_VIEW_STANDARD;
         ui_rebuild_mode(hwnd);
-        ui_update_layout(hwnd);
+        apply_window_size(hwnd, g_mode, g_panel);
+        ui_update_menu_check(GetMenu(hwnd));
+        return;
+    }
+
+    if (id == ID_VIEW_BASIC) {
+        g_basic_mode = !g_basic_mode;
+        ui_rebuild_mode(hwnd);
+        apply_window_size(hwnd, g_mode, g_panel); 
         ui_update_menu_check(GetMenu(hwnd));
         return;
     }
@@ -31,33 +33,33 @@ void on_command(HWND hwnd, int id) {
     if (id == ID_VIEW_HISTORY) {
         g_panel = (g_panel == PANEL_HISTORY) ? PANEL_NONE : PANEL_HISTORY;
         ui_show_panel(hwnd, g_panel);
+        apply_window_size(hwnd, g_mode, g_panel);
         ui_update_menu_check(GetMenu(hwnd));
         return;
     }
+    
     if (id == ID_PANEL_UNIT) {
         g_panel = (g_panel == PANEL_UNIT) ? PANEL_NONE : PANEL_UNIT;
         ui_show_panel(hwnd, g_panel);
+        apply_window_size(hwnd, g_mode, g_panel);
         return;
     }
+    
     if (id == ID_PANEL_DATE) {
         g_panel = (g_panel == PANEL_DATE) ? PANEL_NONE : PANEL_DATE;
         ui_show_panel(hwnd, g_panel);
+        apply_window_size(hwnd, g_mode, g_panel);
         return;
     }
+    
     if (id >= ID_WS_MORTGAGE && id <= ID_WS_FUEL_LKM) {
         ui_show_worksheet(hwnd, id - ID_WS_MORTGAGE);
         return;
     }
+    
     if (id == ID_VIEW_DIGIT_GRP) {
         digit_grouping = !digit_grouping;
         ui_update_digit_grouping(hwnd);
-        ui_update_menu_check(GetMenu(hwnd));
-        return;
-    }
-    if (id == ID_VIEW_BASIC) {
-        g_basic_mode = !g_basic_mode;
-        ui_rebuild_mode(hwnd);
-        ui_update_layout(hwnd);
         ui_update_menu_check(GetMenu(hwnd));
         return;
     }
@@ -77,24 +79,24 @@ void on_command(HWND hwnd, int id) {
     if (id == ID_UNIT_TYPE) {
         HWND hf, ht;
         int cat, i;
-        cat = (int)SendMessageW(GetDlgItem(hwnd,ID_UNIT_TYPE), CB_GETCURSEL, 0, 0);
+        cat = (int)SendMessageW(GetDlgItem(hwnd, ID_UNIT_TYPE), CB_GETCURSEL, 0, 0);
         hf  = GetDlgItem(hwnd, ID_UNIT_FROM_UNT);
         ht  = GetDlgItem(hwnd, ID_UNIT_TO_UNT);
+        
         SendMessageW(hf, CB_RESETCONTENT, 0, 0);
         SendMessageW(ht, CB_RESETCONTENT, 0, 0);
+        
         if (cat >= 0 && cat < g_unit_cat_count) {
             for (i = 0; i < g_unit_cats[cat].unit_count; i++) {
-                SendMessageW(hf, CB_ADDSTRING, 0,
-                             (LPARAM)g_unit_cats[cat].units[i].name);
-                SendMessageW(ht, CB_ADDSTRING, 0,
-                             (LPARAM)g_unit_cats[cat].units[i].name);
+                SendMessageW(hf, CB_ADDSTRING, 0, (LPARAM)g_unit_cats[cat].units[i].name);
+                SendMessageW(ht, CB_ADDSTRING, 0, (LPARAM)g_unit_cats[cat].units[i].name);
             }
             SendMessageW(hf, CB_SETCURSEL, 0, 0);
-            SendMessageW(ht, CB_SETCURSEL,
-                         1 < g_unit_cats[cat].unit_count ? 1 : 0, 0);
+            SendMessageW(ht, CB_SETCURSEL, (1 < g_unit_cats[cat].unit_count ? 1 : 0), 0);
         }
         return;
     }
+    
     if (id == ID_UNIT_FROM_UNT || id == ID_UNIT_TO_UNT) {
         panel_unit_convert(hwnd);
         return;
@@ -168,16 +170,20 @@ void on_command(HWND hwnd, int id) {
     if (id == ID_SUB) { handle_op(hwnd, OP_SUB); return; }
     if (id == ID_MUL) { handle_op(hwnd, OP_MUL); return; }
     if (id == ID_DIV) { handle_op(hwnd, OP_DIV); return; }
+    
     if (id == ID_EQ) {
         do_equals(hwnd);
         if (g_panel == PANEL_HISTORY) ui_update_history_panel(hwnd);
         return;
     }
+    
     if (id == ID_BACK) { handle_back(hwnd); return; }
+    
     if (id == ID_SIGN) {
         if (!error) { set_display(-_wtof(display_str)); ui_update_display(hwnd); }
         return;
     }
+    
     if (id == ID_SQRT) {
         double v;
         if (error) return;
@@ -186,10 +192,12 @@ void on_command(HWND hwnd, int id) {
         set_display(sqrt(v)); ui_update_display(hwnd); new_input = TRUE;
         return;
     }
+    
     if (id == ID_PERCENT) {
         if (!error) { set_display(_wtof(display_str) / 100.0); ui_update_display(hwnd); }
         return;
     }
+    
     if (id == ID_RECIP) {
         double v;
         if (error) return;
@@ -256,6 +264,7 @@ void on_command(HWND hwnd, int id) {
         new_input = TRUE;
         return;
     }
+    
     if (id == ID_PROG_ROL) {
         unsigned long long v;
         unsigned long long mask;
@@ -271,6 +280,7 @@ void on_command(HWND hwnd, int id) {
         ui_update_display(hwnd); ui_update_bit_display(hwnd); new_input = TRUE;
         return;
     }
+    
     if (id == ID_PROG_ROR) {
         unsigned long long v;
         unsigned long long mask;
@@ -308,6 +318,7 @@ void on_command(HWND hwnd, int id) {
         }
         return;
     }
+    
     if (id == ID_STAT_MEAN)  { set_display(stat_mean());      ui_update_display(hwnd); new_input=TRUE; return; }
     if (id == ID_STAT_MEAN2) { set_display(stat_mean_sq());   ui_update_display(hwnd); new_input=TRUE; return; }
     if (id == ID_STAT_SUMX)  { set_display(stat_sum());       ui_update_display(hwnd); new_input=TRUE; return; }

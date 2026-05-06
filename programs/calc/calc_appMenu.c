@@ -55,22 +55,50 @@ void get_window_size(int client_w, int client_h, DWORD style,
     *wh = rc.bottom - rc.top;
 }
 
-int mode_client_width(void) {
-    int base;
-    int panel_extra = (g_panel != PANEL_NONE) ? 280 : 0;
-    switch (g_mode) {
-        case MODE_SCIENTIFIC: base = 560; break;
-        case MODE_PROGRAMMER: base = 580; break;
-        default:              base = 300; break;
+void get_required_client_size(int mode, int panel, int *w, int *h) {
+    int cols, rows, header_h;
+    int margin, gap, disp_h, btn_w, btn_h;
+    int grid_w, grid_h;
+    
+    margin = 12;
+    gap    = 6;
+    disp_h = 60;
+    btn_w  = 40; 
+    btn_h  = 32; 
+
+    switch (mode) {
+        case MODE_SCIENTIFIC: cols = 10; rows = 7; header_h = 30; break;
+        case MODE_PROGRAMMER: cols = 9;  rows = 7; header_h = 50; break;
+        case MODE_STATISTICS: cols = 5;  rows = 7; header_h = 100; break;
+        default:              cols = 5;  rows = 6; header_h = 0; break;
     }
-    return base + panel_extra;
+
+    grid_w = (cols * btn_w) + ((cols - 1) * gap);
+    grid_h = (rows * btn_h) + ((rows - 1) * gap);
+
+    *w = grid_w + (margin * 2);
+    *h = margin + disp_h + margin + header_h + grid_h + margin;
+
+    if (panel != PANEL_NONE) {
+        *w += 260; 
+    }
 }
 
-int mode_client_height(void) {
-    switch (g_mode) {
-        case MODE_SCIENTIFIC: return 440;
-        case MODE_PROGRAMMER: return 460;
-        case MODE_STATISTICS: return 460;
-        default:              return 420;
-    }
+void apply_window_size(HWND hwnd, int mode, int panel) {
+    int cw, ch;
+    DWORD style;
+    RECT rc;
+
+    get_required_client_size(mode, panel, &cw, &ch);
+
+    style = GetWindowLongW(hwnd, GWL_STYLE);
+    rc.left = 0;
+    rc.top = 0;
+    rc.right = cw;
+    rc.bottom = ch;
+    
+    AdjustWindowRect(&rc, style, TRUE);
+
+    SetWindowPos(hwnd, NULL, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
