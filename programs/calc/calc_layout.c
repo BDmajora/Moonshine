@@ -1,4 +1,4 @@
-#include "calc_ui.h"
+#include "calc_defs.h"
 
 void layout_standard(HWND hwnd, Layout *L) {
     int x   = L->disp_x;
@@ -120,31 +120,39 @@ void layout_scientific(HWND hwnd, Layout *L) {
 }
 
 void layout_programmer(HWND hwnd, Layout *L) {
-    int x    = L->disp_x;
-    int bw   = L->bw;
-    int bh   = L->bh;
-    int g    = L->gap;
-    int bit_y  = L->disp_y + L->disp_h + g;
-    int bit_h  = (int)(L->win_h * 0.09);
-    int rh     = bh;
+    int x   = L->disp_x;
+    int bw  = L->bw;
+    int bh  = L->bh;
+    int g   = L->gap;
+    int gw  = bw;
+
+    /* Bit display: sits between display and radios */
+    int bit_y = L->disp_y + L->disp_h + g;
+    int bit_h = 24;
+
+    /* Radio columns: Hex/Dec/Oct/Bin on left, Qword/Dword/Word/Byte below */
     int radio_y = bit_y + bit_h + g;
-    int y       = radio_y + rh * 2 + g * 2;
-    int rx      = x;
     int rcw     = bw + bw / 2;
-    int gx      = x + rcw + g;
-    int gw      = bw;
+    int rx      = x;
+    int rh      = bh;
 
-    move_ctrl(hwnd, ID_DISP_BITS,    x, bit_y, L->grid_w, bit_h);
+    /* Button grid starts at L->grid_y which is computed from header_h=50.
+       This guarantees the grid never overlaps the radios regardless of
+       how many radio rows are placed above. */
+    int y  = L->grid_y;
+    int gx = x + rcw + g;
 
-    move_ctrl(hwnd, ID_RADIO_HEX,    rx, radio_y,             rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_DEC,    rx, radio_y+rh+g,        rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_OCT,    rx, radio_y+rh*2+g*2,    rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_BIN,    rx, radio_y+rh*3+g*3,    rcw, rh);
+    move_ctrl(hwnd, ID_DISP_BITS,   x, bit_y, L->grid_w, bit_h);
 
-    move_ctrl(hwnd, ID_RADIO_QWORD,  rx, radio_y+rh*4+g*5,    rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_DWORD,  rx, radio_y+rh*5+g*6,    rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_WORD,   rx, radio_y+rh*6+g*7,    rcw, rh);
-    move_ctrl(hwnd, ID_RADIO_BYTE,   rx, radio_y+rh*7+g*8,    rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_HEX,   rx, radio_y,          rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_DEC,   rx, radio_y+rh+g,     rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_OCT,   rx, radio_y+rh*2+g*2, rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_BIN,   rx, radio_y+rh*3+g*3, rcw, rh);
+
+    move_ctrl(hwnd, ID_RADIO_QWORD, rx, radio_y+rh*4+g*5, rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_DWORD, rx, radio_y+rh*5+g*6, rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_WORD,  rx, radio_y+rh*6+g*7, rcw, rh);
+    move_ctrl(hwnd, ID_RADIO_BYTE,  rx, radio_y+rh*7+g*8, rcw, rh);
 
     move_ctrl(hwnd, ID_MC,     gx+(gw+g)*3, y+(bh+g)*0, gw, bh);
     move_ctrl(hwnd, ID_MR,     gx+(gw+g)*4, y+(bh+g)*0, gw, bh);
@@ -208,55 +216,55 @@ void layout_statistics(HWND hwnd, Layout *L) {
     int row;
 
     move_ctrl(hwnd, ID_DISP_HISTORY, x, y0, list_w, list_h);
-    move_ctrl(hwnd, 400, x + list_w + g, y0,              bh, list_h/2 - g/2);
-    move_ctrl(hwnd, 401, x + list_w + g, y0+list_h/2+g/2, bh, list_h/2 - g/2);
+    move_ctrl(hwnd, 400, x + list_w + g, y0,               bh, list_h/2 - g/2);
+    move_ctrl(hwnd, 401, x + list_w + g, y0+list_h/2+g/2,  bh, list_h/2 - g/2);
 
     row = 0;
-    move_ctrl(hwnd, ID_MC,          x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_MR,          x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_MS,          x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_MPLUS,       x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_MMINUS,      x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
+    move_ctrl(hwnd, ID_MC,         x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MR,         x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MS,         x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MPLUS,      x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MMINUS,     x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
 
-    move_ctrl(hwnd, ID_BACK,        x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_CAD,    x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_CLR,         x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_SCI_FE,      x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_SCI_EXP,     x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
+    move_ctrl(hwnd, ID_BACK,       x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_CAD,   x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_CLR,        x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_SCI_FE,     x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_SCI_EXP,    x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
 
-    move_ctrl(hwnd, ID_7,           x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_8,           x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_9,           x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_MEAN,   x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_MEAN2,  x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
+    move_ctrl(hwnd, ID_7,          x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_8,          x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_9,          x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_MEAN,  x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_MEAN2, x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
 
-    move_ctrl(hwnd, ID_4,           x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_5,           x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_6,           x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_SUMX,   x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_SUMX2,  x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
+    move_ctrl(hwnd, ID_4,          x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_5,          x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_6,          x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_SUMX,  x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_SUMX2, x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
 
-    move_ctrl(hwnd, ID_1,           x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_2,           x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_3,           x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_SDEV,   x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_SDEV1,  x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
+    move_ctrl(hwnd, ID_1,          x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_2,          x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_3,          x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_SDEV,  x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_SDEV1, x+(bw+g)*4, y+(bh+g)*row, bw, bh); row++;
 
-    move_ctrl(hwnd, ID_0,           x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_DOT,         x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_SIGN,        x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-    move_ctrl(hwnd, ID_STAT_ADD,    x+(bw+g)*3, y+(bh+g)*row, bw*2+g, bh);
+    move_ctrl(hwnd, ID_0,          x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_DOT,        x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_SIGN,       x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_STAT_ADD,   x+(bw+g)*3, y+(bh+g)*row, bw*2+g, bh);
 }
 
 void layout_panel(HWND hwnd, Layout *L) {
-    int px  = L->panel_x + L->margin;
-    int pw  = L->panel_w - L->margin * 2;
-    int py  = L->margin;
-    int lh  = 18;
-    int eh  = 22;
-    int ch  = 22;
-    int bh2 = 26;
-    int g   = L->gap;
+    int px   = L->panel_x + L->margin;
+    int pw   = L->panel_w - L->margin * 2;
+    int py   = L->margin;
+    int lh   = 18;
+    int eh   = 22;
+    int ch   = 22;
+    int bh2  = 26;
+    int g    = L->gap;
     int wide = pw;
     int i;
     static const int lbl_ids[] = {ID_WS_LBL1,ID_WS_LBL2,ID_WS_LBL3,
@@ -277,35 +285,41 @@ void layout_panel(HWND hwnd, Layout *L) {
             break;
 
         case PANEL_DATE:
-            move_ctrl(hwnd, 353,           px,              py, wide,   lh); py += lh+g;
-            move_ctrl(hwnd, ID_DATE_TYPE,  px,              py, wide,   ch); py += ch+g*2;
-            move_ctrl(hwnd, 354,           px,              py, wide/2, lh);
-            move_ctrl(hwnd, 355,           px+wide/2+g,     py, wide/2, lh);
+            move_ctrl(hwnd, 353,          px,          py, wide,   lh); py += lh+g;
+            move_ctrl(hwnd, ID_DATE_TYPE, px,          py, wide,   ch); py += ch+g*2;
+            move_ctrl(hwnd, 354,          px,          py, wide/2, lh);
+            move_ctrl(hwnd, 355,          px+wide/2+g, py, wide/2, lh);
             py += lh+g;
-            move_ctrl(hwnd, ID_DATE_FROM,  px,              py, wide/2, eh);
-            move_ctrl(hwnd, ID_DATE_TO,    px+wide/2+g,     py, wide/2, eh);
+            move_ctrl(hwnd, ID_DATE_FROM, px,          py, wide/2, eh);
+            move_ctrl(hwnd, ID_DATE_TO,   px+wide/2+g, py, wide/2, eh);
             py += eh+g*2;
-            move_ctrl(hwnd, ID_DATE_CALC,  px, py, wide, bh2); py += bh2+g*2;
-            move_ctrl(hwnd, ID_DATE_RES1,  px, py, wide, lh*2); py += lh*2+g;
-            move_ctrl(hwnd, ID_DATE_RES2,  px, py, wide, lh);
+            move_ctrl(hwnd, ID_DATE_CALC, px, py, wide,   bh2); py += bh2+g*2;
+            move_ctrl(hwnd, ID_DATE_RES1, px, py, wide,   lh*2); py += lh*2+g;
+            move_ctrl(hwnd, ID_DATE_RES2, px, py, wide,   lh);
             break;
 
         case PANEL_HISTORY:
-            move_ctrl(hwnd, 356,           px, py, wide, lh); py += lh+g;
-            move_ctrl(hwnd, ID_PANEL_COMBO,px, py, wide,
+            move_ctrl(hwnd, 356,            px, py, wide, lh); py += lh+g;
+            move_ctrl(hwnd, ID_PANEL_COMBO, px, py, wide,
                       L->win_h - py - bh2 - g*2 - L->margin);
             py = L->win_h - bh2 - L->margin;
-            move_ctrl(hwnd, ID_PANEL_CLOSE,px, py, wide, bh2);
+            move_ctrl(hwnd, ID_PANEL_CLOSE, px, py, wide, bh2);
             break;
 
         case PANEL_WORKSHEET:
-            move_ctrl(hwnd, 357,           px, py, wide, lh); py += lh+g;
-            move_ctrl(hwnd, ID_WS_COMBO,   px, py, wide, ch); py += ch+g*2;
+            move_ctrl(hwnd, 357,          px, py, wide, lh); py += lh+g;
+            move_ctrl(hwnd, ID_WS_COMBO,  px, py, wide, ch); py += ch+g*2;
+
+            /* FIX: Do not check IsWindowVisible here. layout_panel runs
+               before panel_ws_populate has set visibility for the current
+               worksheet type. Instead move all controls that exist and let
+               panel_ws_populate call ShowWindow after layout completes. */
             for (i = 0; i < 6; i++) {
                 HWND hl = GetDlgItem(hwnd, lbl_ids[i]);
-                if (hl && IsWindowVisible(hl)) {
-                    move_ctrl(hwnd, lbl_ids[i], px,           py, wide/2,   lh);
-                    move_ctrl(hwnd, inp_ids[i], px+wide/2+g,  py, wide/2-g, eh);
+                HWND hi = GetDlgItem(hwnd, inp_ids[i]);
+                if (hl && hi) {
+                    move_ctrl(hwnd, lbl_ids[i], px,          py, wide/2,   lh);
+                    move_ctrl(hwnd, inp_ids[i], px+wide/2+g, py, wide/2-g, eh);
                     py += max(lh, eh) + g;
                 }
             }

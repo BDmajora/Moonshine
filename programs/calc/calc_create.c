@@ -1,4 +1,4 @@
-#include "calc_ui.h"
+#include "calc_defs.h"
 #include "calc_panel.h"
 
 static void create_display(HWND hwnd) {

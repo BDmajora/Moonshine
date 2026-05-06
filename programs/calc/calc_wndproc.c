@@ -11,21 +11,20 @@
 extern int g_mode;
 extern int g_panel;
 
-/* ── Keyboard handling ───────────────────────────────────────────── */
 static void on_keydown(HWND hwnd, WPARAM vk, BOOL ctrl, BOOL alt) {
     if (alt) {
-        if (vk == '1') { on_command(hwnd, ID_VIEW_STANDARD);   return; }
-        if (vk == '2') { on_command(hwnd, ID_VIEW_SCIENTIFIC);  return; }
-        if (vk == '3') { on_command(hwnd, ID_VIEW_PROGRAMMER);  return; }
-        if (vk == '4') { on_command(hwnd, ID_VIEW_STATISTICS);  return; }
+        if (vk=='1') on_command(hwnd, ID_VIEW_STANDARD);
+        if (vk=='2') on_command(hwnd, ID_VIEW_SCIENTIFIC);
+        if (vk=='3') on_command(hwnd, ID_VIEW_PROGRAMMER);
+        if (vk=='4') on_command(hwnd, ID_VIEW_STATISTICS);
         return;
     }
     if (ctrl) {
-        if (vk == 'C') { on_command(hwnd, 500); return; }
-        if (vk == 'V') { on_command(hwnd, 501); return; }
-        if (vk == 'H') { on_command(hwnd, ID_VIEW_HISTORY); return; }
-        if (vk == 'U') { on_command(hwnd, ID_PANEL_UNIT);   return; }
-        if (vk == 'E') { on_command(hwnd, ID_PANEL_DATE);   return; }
+        if (vk=='C') on_command(hwnd, 500);
+        if (vk=='V') on_command(hwnd, 501);
+        if (vk=='H') on_command(hwnd, ID_VIEW_HISTORY);
+        if (vk=='U') on_command(hwnd, ID_PANEL_UNIT);
+        if (vk=='E') on_command(hwnd, ID_PANEL_DATE);
         return;
     }
     switch (vk) {
@@ -39,73 +38,68 @@ static void on_keydown(HWND hwnd, WPARAM vk, BOOL ctrl, BOOL alt) {
 }
 
 static void on_char(HWND hwnd, WCHAR ch) {
-    if (ch >= L'0' && ch <= L'9') { on_command(hwnd, ID_0 + (ch - L'0')); return; }
-    if (ch >= L'a' && ch <= L'f') ch = (WCHAR)(ch - L'a' + L'A');
+    if (ch >= L'0' && ch <= L'9') { on_command(hwnd, ID_0+(ch-L'0')); return; }
+    if (ch >= L'a' && ch <= L'f') ch = (WCHAR)(ch-L'a'+L'A');
     switch (ch) {
-        case L'A': on_command(hwnd, ID_A);       break;
-        case L'B': on_command(hwnd, ID_B);       break;
-        case L'C': on_command(hwnd, ID_C_HEX);  break;
-        case L'D': on_command(hwnd, ID_D);       break;
-        case L'E': on_command(hwnd, ID_E_HEX);  break;
-        case L'F': on_command(hwnd, ID_F);       break;
-        case L'+': on_command(hwnd, ID_ADD);     break;
-        case L'-': on_command(hwnd, ID_SUB);     break;
-        case L'*': on_command(hwnd, ID_MUL);     break;
-        case L'/': on_command(hwnd, ID_DIV);     break;
-        case L'.': on_command(hwnd, ID_DOT);     break;
-        case L'=': on_command(hwnd, ID_EQ);      break;
-        case L'%': on_command(hwnd, ID_PERCENT); break;
-        case L'@': on_command(hwnd, ID_SQRT);    break;
-        case 27:   on_command(hwnd, ID_CLR);     break;
-        case 8:    on_command(hwnd, ID_BACK);    break;
-        case 13:   on_command(hwnd, ID_EQ);      break;
+        case L'A': on_command(hwnd,ID_A);      break;
+        case L'B': on_command(hwnd,ID_B);      break;
+        case L'C': on_command(hwnd,ID_C_HEX); break;
+        case L'D': on_command(hwnd,ID_D);      break;
+        case L'E': on_command(hwnd,ID_E_HEX); break;
+        case L'F': on_command(hwnd,ID_F);      break;
+        case L'+': on_command(hwnd,ID_ADD);    break;
+        case L'-': on_command(hwnd,ID_SUB);    break;
+        case L'*': on_command(hwnd,ID_MUL);    break;
+        case L'/': on_command(hwnd,ID_DIV);    break;
+        case L'.': on_command(hwnd,ID_DOT);    break;
+        case L'=': on_command(hwnd,ID_EQ);     break;
+        case L'%': on_command(hwnd,ID_PERCENT);break;
+        case L'@': on_command(hwnd,ID_SQRT);   break;
+        case 27:   on_command(hwnd,ID_CLR);    break;
+        case 8:    on_command(hwnd,ID_BACK);   break;
+        case 13:   on_command(hwnd,ID_EQ);     break;
         default:   break;
     }
 }
 
-/* ── Window Procedure ────────────────────────────────────────────── */
 LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
             ui_create_controls(hwnd);
             break;
 
+        /* WM_SIZE: ONLY reposition existing controls.
+           Do NOT rebuild or resize here — that causes recursion.
+           Resizing is triggered explicitly by ui_switch_mode/ui_show_panel. */
         case WM_SIZE:
-            /* Use DeferWindowPos inside ui_update_layout if possible to reduce redraws */
             ui_update_layout(hwnd);
-            /* Redraw the entire window to ensure the new grid doesn't leave artifacts */
-            RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
             break;
 
         case WM_COMMAND: {
             int id    = (int)LOWORD(wp);
             int notif = (int)HIWORD(wp);
-            
+
             if (id == ID_HELP_ABOUT) {
                 About_ShowDialog(hwnd);
                 break;
             }
-            
-            if (notif == CBN_SELCHANGE || notif == 0 || notif == BN_CLICKED) {
-                on_command(hwnd, id);
-                
-                /* Trigger centralized resize logic */
-                if ((id >= ID_VIEW_STANDARD && id <= ID_VIEW_STATISTICS) ||
-                    (id == ID_PANEL_UNIT || id == ID_PANEL_DATE)) {
-                    apply_window_size(hwnd, g_mode, g_panel);
-                }
-            }
-            
+            /* Live unit conversion while typing */
             if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE) {
                 panel_unit_convert(hwnd);
+                break;
             }
+            /* NOTE: Do NOT call apply_window_size here.
+               on_command → ui_switch_mode/ui_show_panel already handle
+               the full sequence: resize → rebuild → layout.
+               A second apply_window_size here causes a second WM_SIZE
+               which re-runs ui_update_layout on the wrong control set. */
+            if (notif == CBN_SELCHANGE || notif == BN_CLICKED || notif == 0)
+                on_command(hwnd, id);
             break;
         }
 
         case WM_ERASEBKGND:
-            /* Return 1 to tell Windows we handled background clearing.
-               Prevents the "white flash" during resizing. */
-            return 1; 
+            return 1;
 
         case WM_KEYDOWN: {
             BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -122,17 +116,14 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
             int cw, ch, ww, wh;
-            
             get_required_client_size(g_mode, g_panel, &cw, &ch);
             get_window_size(cw, ch, style, &ww, &wh);
-            
             mmi->ptMinTrackSize.x = ww;
             mmi->ptMinTrackSize.y = wh;
             return 0;
         }
 
         case WM_DESTROY:
-            /* Clean up GDI fonts properly */
             if (hBtnFont)   DeleteObject(hBtnFont);
             if (hDispFont)  DeleteObject(hDispFont);
             if (hSmallFont) DeleteObject(hSmallFont);
@@ -145,18 +136,13 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
 }
 
-/* ── Entry point ─────────────────────────────────────────────────── */
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
                     LPWSTR cmdline, int cmdshow) {
-    WNDCLASSW  wc;
-    HWND       hwnd;
-    MSG        msg;
-    HMENU      hMenu;
-    
-    /* WS_CLIPCHILDREN: CRITICAL for eliminating flicker.
-       WS_CLIPSIBLINGS: Ensures child windows don't draw over each other. */
+    WNDCLASSW wc;
+    HWND hwnd;
+    MSG  msg;
+    HMENU hMenu;
     DWORD dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS) & ~WS_MAXIMIZEBOX;
-    
     int cw, ch, ww, wh;
     INITCOMMONCONTROLSEX icc;
 
@@ -167,7 +153,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     ZeroMemory(&wc, sizeof(wc));
     wc.lpfnWndProc   = CalcWndProc;
     wc.hInstance     = hInstance;
-    /* Use the system brush for the background */
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"CalcWnd";
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
@@ -176,14 +161,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     RegisterClassW(&wc);
 
     hMenu = create_menu();
-    
     get_required_client_size(g_mode, g_panel, &cw, &ch);
     get_window_size(cw, ch, dwStyle, &ww, &wh);
 
-    hwnd = CreateWindowW(L"CalcWnd", L"Calculator",
-                         dwStyle,
-                         CW_USEDEFAULT, CW_USEDEFAULT,
-                         ww, wh,
+    hwnd = CreateWindowW(L"CalcWnd", L"Calculator", dwStyle,
+                         CW_USEDEFAULT, CW_USEDEFAULT, ww, wh,
                          NULL, hMenu, hInstance, NULL);
 
     ui_update_menu_check(hMenu);
@@ -196,5 +178,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
             DispatchMessageW(&msg);
         }
     }
+    (void)hPrev; (void)cmdline;
     return (int)msg.wParam;
 }

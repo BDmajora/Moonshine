@@ -4,7 +4,7 @@
 #include <windows.h>
 #include <commctrl.h>
 
-/* ── Standard UI IDs ──────────────────────────────────────────────── */
+/* *** Standard UI IDs *** */
 #ifndef IDC_STATIC
 #define IDC_STATIC       -1
 #endif
@@ -16,26 +16,26 @@
 /* Icon ID */
 #define IDI_CALC          10
 
-/* ── Modes ─────────────────────────────────────────────────────────── */
+/* *** Modes *** */
 #define MODE_STANDARD     0
 #define MODE_SCIENTIFIC   1
 #define MODE_PROGRAMMER   2
 #define MODE_STATISTICS   3
 
-/* ── Side-panel types ───────────────────────────────────────────────── */
+/* *** Side-panel types *** */
 #define PANEL_NONE        0
 #define PANEL_HISTORY     1
 #define PANEL_UNIT        2
 #define PANEL_DATE        3
 #define PANEL_WORKSHEET   4
 
-/* ── Worksheet sub-types ────────────────────────────────────────────── */
+/* *** Worksheet sub-types *** */
 #define WS_MORTGAGE       0
 #define WS_VEHICLE        1
 #define WS_FUEL_MPG       2
 #define WS_FUEL_LKM       3
 
-/* ── Operators ──────────────────────────────────────────────────────── */
+/* *** Operators *** */
 #define OP_NONE           0
 #define OP_ADD            1
 #define OP_SUB            2
@@ -50,7 +50,7 @@
 #define OP_LSH            11
 #define OP_RSH            12
 
-/* ── Programmer Settings ───────────────────────────────────────────── */
+/* *** Programmer Settings *** */
 #define BASE_HEX          16
 #define BASE_DEC          10
 #define BASE_OCT           8
@@ -61,14 +61,14 @@
 #define WORD_WORD         2
 #define WORD_BYTE         3
 
-/* ── Trig angle units ───────────────────────────────────────────────── */
+/* *** Trig angle units *** */
 #define ANGLE_DEG         0
 #define ANGLE_RAD         1
 #define ANGLE_GRAD        2
 
 #define MAX_DISPLAY       64
 
-/* ─────────────────────── Control IDs ─────────────────────────────── */
+/* *** Control IDs *** */
 #define ID_DISPLAY        200
 #define ID_DISP_BITS      201
 #define ID_DISP_HISTORY   202
@@ -227,5 +227,61 @@
 #define ID_WS_VEHICLE      431
 #define ID_WS_FUEL_MPG     432
 #define ID_WS_FUEL_LKM     433
+
+/* *** Mode / panel state *** */
+extern int   g_mode;
+extern int   g_panel;
+extern int   g_worksheet;
+extern BOOL  g_basic_mode;
+
+/* *** Font handles *** */
+extern HFONT hBtnFont;
+extern HFONT hDispFont;
+extern HFONT hSmallFont;
+
+/* *** Layout struct *** */
+typedef struct {
+    int margin, gap;
+    int win_w, win_h;
+    int disp_x, disp_y, disp_w, disp_h;
+    int grid_y, grid_h, grid_w;
+    int bw, bh;
+    int rows, cols;
+    int panel_x, panel_w;
+} Layout;
+
+/* *** Function Prototypes *** */
+void  move_ctrl(HWND hwnd, int id, int x, int y, int w, int h);
+HWND  make_button(HWND p, int id, const WCHAR *lbl, BOOL def);
+HWND  make_radio(HWND p, int id, const WCHAR *lbl, BOOL first);
+HWND  make_label(HWND p, int id, const WCHAR *text);
+HWND  make_edit(HWND p, int id, const WCHAR *text);
+HWND  make_combo(HWND p, int id);
+
+void  recreate_fonts(int btn_h, int disp_h);
+void  compute_layout(HWND hwnd, Layout *L);
+void  ui_update_layout(HWND hwnd);
+void  ui_update_display(HWND hwnd);
+void  ui_update_bit_display(HWND hwnd);
+void  ui_update_stat_display(HWND hwnd);
+void  ui_update_history_panel(HWND hwnd);
+void  ui_update_prog_buttons(HWND hwnd);
+void  ui_update_digit_grouping(HWND hwnd);
+void  ui_update_menu_check(HMENU hMenu);
+void  ui_rebuild_mode(HWND hwnd);
+void  ui_switch_mode(HWND hwnd, int new_mode);
+void  ui_show_panel(HWND hwnd, int new_panel);
+void  ui_show_worksheet(HWND hwnd, int ws_type);
+void  ui_create_controls(HWND hwnd);
+
+void  layout_standard(HWND hwnd, Layout *L);
+void  layout_scientific(HWND hwnd, Layout *L);
+void  layout_programmer(HWND hwnd, Layout *L);
+void  layout_statistics(HWND hwnd, Layout *L);
+void  layout_panel(HWND hwnd, Layout *L);
+
+void  on_command(HWND hwnd, int id);
+void  sci_unary(HWND hwnd, int id);
+LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 #endif /* CALC_DEFS_H */
