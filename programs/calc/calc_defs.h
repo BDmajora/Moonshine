@@ -257,6 +257,7 @@ HWND  make_radio(HWND p, int id, const WCHAR *lbl, BOOL first);
 HWND  make_label(HWND p, int id, const WCHAR *text);
 HWND  make_edit(HWND p, int id, const WCHAR *text);
 HWND  make_combo(HWND p, int id);
+void  ui_register_child(HWND hwnd);  /* ADDED PROTOTYPE HERE */
 
 void  recreate_fonts(int btn_h, int disp_h);
 void  compute_layout(HWND hwnd, Layout *L);

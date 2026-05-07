@@ -5,7 +5,7 @@
 #include <wchar.h>
 #include <stdlib.h>
 #include "calc.h"
-#include "calc_ui.h"
+#include "calc_defs.h"
 #include "calc_logic.h"
 #include "calc_panel.h"
 #include "calc_appMenu.h"
@@ -19,6 +19,20 @@ BOOL  g_basic_mode = FALSE;
 HFONT hBtnFont   = NULL;
 HFONT hDispFont  = NULL;
 HFONT hSmallFont = NULL;
+
+/* ── Child window registry ───────────────────────────────────────────
+   Every HWND created by ui_create_controls is registered here.
+   ui_rebuild_mode destroys exactly these handles — no enumeration,
+   no Z-order walking, no grandchild confusion.
+   This is the ONLY reliable approach on Wine + Windows. */
+#define MAX_CHILDREN 600
+static HWND s_children[MAX_CHILDREN];
+static int  s_child_count = 0;
+
+void ui_register_child(HWND h) {
+    if (h && s_child_count < MAX_CHILDREN)
+        s_children[s_child_count++] = h;
+}
 
 static BOOL CALLBACK SetFontProc(HWND h, LPARAM lp) {
     SendMessageW(h, WM_SETFONT, (WPARAM)lp, TRUE);
@@ -188,57 +202,25 @@ void ui_update_prog_buttons(HWND hwnd) {
 }
 
 /* ── ui_rebuild_mode ─────────────────────────────────────────────────
-   Uses a hidden staging window to atomically swap all controls.
-
-   The core problem with every other approach:
-   - EnumChildWindows: snapshots Z-order list BEFORE iteration; destroying
-     a window mid-walk corrupts the list and skips controls.
-   - GW_HWNDNEXT loop: walks the SAME Z-order list; after DestroyWindow,
-     the next pointer may be invalid or point to a grandchild.
-   - Snapshot-then-destroy: GW_HWNDNEXT still includes grandchildren of
-     comboboxes/listboxes in the same Z-order chain on Wine.
-
-   The CORRECT approach: use GetWindowLong(GWL_HWNDPARENT) to identify
-   ONLY windows whose immediate parent is hwnd (not grandchildren), build
-   that exact list, then destroy. We use EnumChildWindows but filter by
-   parent to get only direct children. */
-
-typedef struct { HWND parent; HWND list[512]; int count; } ChildList;
-
-static BOOL CALLBACK CollectDirectChildren(HWND h, LPARAM lp) {
-    ChildList *cl = (ChildList *)lp;
-    /* Only collect windows whose DIRECT parent is our target */
-    if (GetParent(h) == cl->parent && cl->count < 512)
-        cl->list[cl->count++] = h;
-    return TRUE;
-}
-
+   Destroys exactly the HWNDs registered in s_children[] during the
+   last ui_create_controls call. No enumeration, no Z-order walking —
+   we own the list so it is always complete and correct. */
 void ui_rebuild_mode(HWND hwnd) {
-    ChildList cl;
     int i;
+    /* Destroy every child we registered */
+    for (i = 0; i < s_child_count; i++) {
+        if (s_children[i] && IsWindow(s_children[i]))
+            DestroyWindow(s_children[i]);
+        s_children[i] = NULL;
+    }
+    s_child_count = 0;
 
-    cl.parent = hwnd;
-    cl.count  = 0;
-
-    /* EnumChildWindows walks ALL descendants, but we filter by GetParent()
-       so we only collect direct children — not grandchildren of combos */
-    EnumChildWindows(hwnd, CollectDirectChildren, (LPARAM)&cl);
-
-    /* Now destroy only the direct children we collected */
-    for (i = 0; i < cl.count; i++)
-        DestroyWindow(cl.list[i]);
-
+    /* Create new controls for current mode/panel */
     ui_create_controls(hwnd);
     ui_update_display(hwnd);
 }
 
-/* ── Mode/panel switch: the ONE correct call sequence ───────────────
-   Order matters:
-   1. Set g_mode/g_panel FIRST so get_required_client_size is correct
-   2. Resize the window (triggers WM_SIZE → ui_update_layout with new size)
-   3. Rebuild controls (destroys old, creates new for current mode)
-   4. Layout controls to fit the already-correct window size
-   5. Update menu checkmarks */
+/* ── Unified switch functions ────────────────────────────────────── */
 void ui_switch_mode(HWND hwnd, int new_mode) {
     g_mode = new_mode;
     apply_window_size(hwnd, g_mode, g_panel);
@@ -248,7 +230,6 @@ void ui_switch_mode(HWND hwnd, int new_mode) {
 }
 
 void ui_show_panel(HWND hwnd, int new_panel) {
-    /* Toggle: clicking the same panel closes it */
     g_panel = (g_panel == new_panel) ? PANEL_NONE : new_panel;
     apply_window_size(hwnd, g_mode, g_panel);
     ui_rebuild_mode(hwnd);
@@ -257,13 +238,9 @@ void ui_show_panel(HWND hwnd, int new_panel) {
 }
 
 void ui_show_worksheet(HWND hwnd, int ws_type) {
-    /* Toggle: clicking the same worksheet closes it */
-    if (g_panel == PANEL_WORKSHEET && g_worksheet == ws_type) {
+    if (g_panel == PANEL_WORKSHEET && g_worksheet == ws_type)
         g_panel = PANEL_NONE;
-    } else {
-        g_worksheet = ws_type;
-        g_panel = PANEL_WORKSHEET;
-    }
+    else { g_worksheet = ws_type; g_panel = PANEL_WORKSHEET; }
     apply_window_size(hwnd, g_mode, g_panel);
     ui_rebuild_mode(hwnd);
     ui_update_layout(hwnd);
@@ -280,9 +257,9 @@ void ui_update_menu_check(HMENU hMenu) {
         CheckMenuItem(hMenu, modes[i], MF_BYCOMMAND |
             (g_mode == i ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, ID_VIEW_HISTORY,
-        g_panel == PANEL_HISTORY   ? MF_CHECKED : MF_UNCHECKED);
+        g_panel == PANEL_HISTORY ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(hMenu, ID_VIEW_DIGIT_GRP,
-        digit_grouping             ? MF_CHECKED : MF_UNCHECKED);
+        digit_grouping           ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(hMenu, ID_VIEW_BASIC,
-        g_basic_mode               ? MF_CHECKED : MF_UNCHECKED);
+        g_basic_mode             ? MF_CHECKED : MF_UNCHECKED);
 }
