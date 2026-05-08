@@ -11,8 +11,8 @@ typedef struct {
 } UnitEntry;
 
 typedef struct {
-    const WCHAR  *type_name;
-    int           unit_count;
+    const WCHAR     *type_name;
+    int              unit_count;
     const UnitEntry *units;
 } UnitCategory;
 
@@ -31,5 +31,9 @@ void panel_date_calculate(HWND hwnd);
 /* ── Worksheets ─────────────────────────────────────────────────── */
 void panel_ws_populate(HWND hwnd, int ws_type);
 void panel_ws_calculate(HWND hwnd, int ws_type);
+
+/* Called from calc_cmdDispatch when ID_WS_COMBO selection changes.
+   Refreshes the input field labels to match the new solve-for target. */
+void panel_ws_combo_changed(HWND hwnd, int ws_type);
 
 #endif /* CALC_PANEL_H */

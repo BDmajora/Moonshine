@@ -55,6 +55,13 @@ void on_command(HWND hwnd, int id) {
     if (id == ID_DATE_CALC) { panel_date_calculate(hwnd); return; }
     if (id == ID_WS_CALC)   { panel_ws_calculate(hwnd, g_worksheet); return; }
 
+    /* ── Worksheet combo: rearrange input labels when user picks a
+           different "solve for" variable. */
+    if (id == ID_WS_COMBO) {
+        panel_ws_combo_changed(hwnd, g_worksheet);
+        return;
+    }
+
     /* ── Unit panel: repopulate on type change ── */
     if (id == ID_UNIT_TYPE) {
         HWND hf, ht;

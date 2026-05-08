@@ -18,4 +18,5 @@ SOURCES = \
     calc_update.c \
     calc_panel.c \
     calc_window.c \
+    calc_mortgage.c \
     calc.rc
