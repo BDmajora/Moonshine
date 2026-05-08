@@ -1,14 +1,14 @@
 /* ────────────────────────────────────────────────────────────────────
-   calc_window.c — window sizing, nothing else.
+   calc_window.c — window sizing.
 
-   Moved here from calc_appMenu.c (which now only does menus).
-   These functions compute and apply the window's outer size based on
-   mode + panel.  No control creation, no layout — pure geometry.
+   apply_window_size() is the ONLY place the window outer size changes.
+   It ALWAYS calls SetWindowPos (even if we think the size is the same —
+   Wine rounds differently than we expect) and ALWAYS runs layout
+   afterward so we never depend on WM_SIZE firing.
    ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include "calc.h"
 
-/* Geometry constants — must match calc_layout.c (LY_BTN_*). */
 #define GM_MARGIN   12
 #define GM_GAP       6
 #define GM_DISP_H   60
@@ -61,8 +61,19 @@ void get_required_client_size(int mode, int panel, int *w, int *h) {
 void apply_window_size(HWND hwnd, int mode, int panel) {
     int cw, ch, ww, wh;
     DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
+
     get_required_client_size(mode, panel, &cw, &ch);
     get_window_size(cw, ch, style, &ww, &wh);
+
+    /* ALWAYS call SetWindowPos — don't try to optimize away same-size
+       calls.  Wine rounds frame sizes differently and "same size" on
+       our side can be different on the server side.  The only flag
+       that matters is SWP_NOMOVE. */
     SetWindowPos(hwnd, NULL, 0, 0, ww, wh,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    /* Run layout unconditionally — WM_SIZE may or may not have fired
+       by this point.  This is the canonical "make everything right"
+       call and it's fast (just MoveWindow on existing children). */
+    ui_update_layout(hwnd);
 }

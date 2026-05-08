@@ -1,22 +1,14 @@
 /* ────────────────────────────────────────────────────────────────────
    calc_update.c — UI state, layout dispatch, mode/panel switching.
 
-   Key fix: ui_switch_mode / ui_show_panel / ui_show_worksheet now
-   REBUILD CONTROLS BEFORE RESIZING THE WINDOW.  The old order was
-       apply_window_size  → ui_rebuild_mode → ui_update_layout
-   but apply_window_size triggers a synchronous WM_SIZE, which calls
-   ui_update_layout against the OLD set of controls.  That's what
-   caused the ghost buttons in the screenshot — Standard's "8" got
-   move_ctrl'd into Statistics' "8" position before being destroyed,
-   and the immediate repaint left visible artifacts.
+   Switching sequence:
+     1. Update g_mode / g_panel / g_worksheet.
+     2. ui_rebuild_mode — destroys old children, creates new ones.
+     3. apply_window_size — resizes the window AND runs layout.
+     4. Update menu checkmarks.
 
-   New order:
-       ui_rebuild_mode   → apply_window_size → ui_update_layout
-   The WM_SIZE from apply_window_size now hits the NEW controls only.
-   The trailing ui_update_layout is the canonical layout for the new
-   client size.
-
-   Child registry moved to calc_widgets.c (next to the factories).
+   apply_window_size (in calc_window.c) always calls ui_update_layout
+   after SetWindowPos, so we don't need a separate call here.
    ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include <commctrl.h>
@@ -29,9 +21,6 @@
 #include "calc_logic.h"
 #include "calc_panel.h"
 
-/* From calc_window.c */
-extern void apply_window_size(HWND hwnd, int mode, int panel);
-/* From calc_widgets.c */
 extern void ui_destroy_children(void);
 
 /* ── Global UI state ── */
@@ -103,6 +92,11 @@ void compute_layout(HWND hwnd, Layout *L) {
 void ui_update_layout(HWND hwnd) {
     Layout L;
     compute_layout(hwnd, &L);
+    /* Skip bogus sizes during very early WM_SIZE (before client
+       rect is established) or if window is minimized. */
+    if (L.bw <= 0 || L.bh <= 0 || L.win_w <= 0 || L.win_h <= 0)
+        return;
+
     recreate_fonts(L.bh, L.disp_h);
     move_ctrl(hwnd, ID_DISPLAY, L.disp_x, L.disp_y, L.disp_w, L.disp_h);
     switch (g_mode) {
@@ -115,7 +109,6 @@ void ui_update_layout(HWND hwnd) {
         layout_panel(hwnd, &L);
     EnumChildWindows(hwnd, SetFontProc, (LPARAM)hBtnFont);
     SendMessageW(GetDlgItem(hwnd, ID_DISPLAY), WM_SETFONT, (WPARAM)hDispFont, TRUE);
-    /* Single repaint at the end — children were moved with bRepaint=FALSE */
     InvalidateRect(hwnd, NULL, TRUE);
 }
 
@@ -212,26 +205,18 @@ void ui_update_prog_buttons(HWND hwnd) {
         EnableWindow(GetDlgItem(hwnd, id), oct);
 }
 
-/* ── Rebuild controls for the current g_mode/g_panel ──────────────── */
 void ui_rebuild_mode(HWND hwnd) {
     ui_destroy_children();
     ui_create_controls(hwnd);
     ui_update_display(hwnd);
 }
 
-/* ── Unified switch functions ─────────────────────────────────────────
-   ORDER MATTERS:
-     1. Set state flags (g_mode / g_panel / g_worksheet).
-     2. Rebuild controls — destroys old, creates new (still 0×0).
-     3. Apply window size — fires WM_SIZE, which lays out the NEW set.
-     4. ui_update_layout — explicit canonical layout (in case 3 was a no-op).
-     5. Update menu checkmarks. */
+/* ── Switch functions ──────────────────────────────────────────────── */
 
 void ui_switch_mode(HWND hwnd, int new_mode) {
     g_mode = new_mode;
     ui_rebuild_mode(hwnd);
     apply_window_size(hwnd, g_mode, g_panel);
-    ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
 
@@ -239,7 +224,6 @@ void ui_show_panel(HWND hwnd, int new_panel) {
     g_panel = (g_panel == new_panel) ? PANEL_NONE : new_panel;
     ui_rebuild_mode(hwnd);
     apply_window_size(hwnd, g_mode, g_panel);
-    ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
 
@@ -249,7 +233,6 @@ void ui_show_worksheet(HWND hwnd, int ws_type) {
     else { g_worksheet = ws_type; g_panel = PANEL_WORKSHEET; }
     ui_rebuild_mode(hwnd);
     apply_window_size(hwnd, g_mode, g_panel);
-    ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
 

@@ -43,9 +43,9 @@ static void on_char(HWND hwnd, WCHAR ch) {
     switch (ch) {
         case L'A': on_command(hwnd,ID_A);      break;
         case L'B': on_command(hwnd,ID_B);      break;
-        case L'C': on_command(hwnd,ID_C_HEX); break;
+        case L'C': on_command(hwnd,ID_C_HEX);  break;
         case L'D': on_command(hwnd,ID_D);      break;
-        case L'E': on_command(hwnd,ID_E_HEX); break;
+        case L'E': on_command(hwnd,ID_E_HEX);  break;
         case L'F': on_command(hwnd,ID_F);      break;
         case L'+': on_command(hwnd,ID_ADD);    break;
         case L'-': on_command(hwnd,ID_SUB);    break;
@@ -68,9 +68,6 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ui_create_controls(hwnd);
             break;
 
-        /* WM_SIZE: ONLY reposition existing controls.
-           Do NOT rebuild or resize here — that causes recursion.
-           Resizing is triggered explicitly by ui_switch_mode/ui_show_panel. */
         case WM_SIZE:
             ui_update_layout(hwnd);
             break;
@@ -83,16 +80,10 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 About_ShowDialog(hwnd);
                 break;
             }
-            /* Live unit conversion while typing */
             if (id == ID_UNIT_FROM_VAL && notif == EN_CHANGE) {
                 panel_unit_convert(hwnd);
                 break;
             }
-            /* NOTE: Do NOT call apply_window_size here.
-               on_command → ui_switch_mode/ui_show_panel already handle
-               the full sequence: resize → rebuild → layout.
-               A second apply_window_size here causes a second WM_SIZE
-               which re-runs ui_update_layout on the wrong control set. */
             if (notif == CBN_SELCHANGE || notif == BN_CLICKED || notif == 0)
                 on_command(hwnd, id);
             break;
@@ -113,6 +104,15 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_GETMINMAXINFO: {
+            /* Lock window to exactly the required size for the current
+               mode + panel.  Setting both min and max to the same value
+               prevents the user (and the WM) from resizing the window,
+               which eliminates the jiggle-to-resize bug entirely.
+
+               When mode/panel changes, apply_window_size calls
+               SetWindowPos, which triggers a fresh WM_GETMINMAXINFO
+               with the NEW g_mode/g_panel, so the lock naturally
+               updates to the new size. */
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
             int cw, ch, ww, wh;
@@ -120,6 +120,8 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             get_window_size(cw, ch, style, &ww, &wh);
             mmi->ptMinTrackSize.x = ww;
             mmi->ptMinTrackSize.y = wh;
+            mmi->ptMaxTrackSize.x = ww;
+            mmi->ptMaxTrackSize.y = wh;
             return 0;
         }
 
@@ -142,7 +144,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     HWND hwnd;
     MSG  msg;
     HMENU hMenu;
-    DWORD dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS) & ~WS_MAXIMIZEBOX;
+    DWORD dwStyle = (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS)
+                    & ~WS_MAXIMIZEBOX & ~WS_THICKFRAME;
     int cw, ch, ww, wh;
     INITCOMMONCONTROLSEX icc;
 
@@ -170,6 +173,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
 
     ui_update_menu_check(hMenu);
     ShowWindow(hwnd, cmdshow);
+
+    /* Guarantee first-run layout: apply_window_size both resizes
+       the window (SetWindowPos) and runs ui_update_layout. */
+    apply_window_size(hwnd, g_mode, g_panel);
     UpdateWindow(hwnd);
 
     while (GetMessageW(&msg, NULL, 0, 0)) {
