@@ -281,10 +281,14 @@ void panel_date_calculate(HWND hwnd) {
    WORKSHEETS
    ════════════════════════════════════════════════════════════════════ */
 
-static const WCHAR *ws_mortgage_labels[] = {
-    L"Purchase price", L"Down payment", L"Term (years)",
-    L"Interest rate (%)", NULL
+/* All five mortgage fields.  The combo "solve for" index picks which
+   one is the output; the other four become input labels/fields. */
+static const WCHAR *ws_mortgage_all[] = {
+    L"Monthly payment", L"Purchase price", L"Down payment",
+    L"Term (years)", L"Interest rate (%)"
 };
+#define MORTGAGE_FIELD_COUNT 5
+
 static const WCHAR *ws_vehicle_labels[] = {
     L"MSRP", L"Residual value (%)", L"Down payment",
     L"Lease term (months)", L"Interest rate (%)", NULL
@@ -296,21 +300,44 @@ static const WCHAR *ws_lkm_labels[] = {
     L"Distance (kilometers)", L"Fuel used (liters)", NULL
 };
 
-void panel_ws_populate(HWND hwnd, int ws_type) {
-    const WCHAR **labels;
-    int i;
-    static const int lbl_ids[] = {ID_WS_LBL1, ID_WS_LBL2, ID_WS_LBL3,
-                                   ID_WS_LBL4, ID_WS_LBL5, ID_WS_LBL6};
-    static const int inp_ids[] = {ID_WS_IN1, ID_WS_IN2, ID_WS_IN3,
-                                   ID_WS_IN4, ID_WS_IN5, ID_WS_IN6};
+/* ── Mortgage: populate labels based on combo selection ──────────── */
+static void mortgage_populate_fields(HWND hwnd) {
+    static const int lbl_ids[] = {ID_WS_LBL1,ID_WS_LBL2,ID_WS_LBL3,
+                                   ID_WS_LBL4,ID_WS_LBL5,ID_WS_LBL6};
+    static const int inp_ids[] = {ID_WS_IN1,ID_WS_IN2,ID_WS_IN3,
+                                   ID_WS_IN4,ID_WS_IN5,ID_WS_IN6};
+    int solve = get_combo_sel(hwnd, ID_WS_COMBO);
+    int slot = 0, i;
 
-    switch(ws_type) {
-        case WS_MORTGAGE: labels = ws_mortgage_labels; break;
-        case WS_VEHICLE:  labels = ws_vehicle_labels;  break;
-        case WS_FUEL_MPG: labels = ws_mpg_labels;      break;
-        default:          labels = ws_lkm_labels;       break;
+    if (solve < 0) solve = 0;
+
+    /* Show the four fields that are NOT the solve-for target */
+    for (i = 0; i < MORTGAGE_FIELD_COUNT; i++) {
+        HWND hl, hi;
+        if (i == solve) continue;
+        hl = ctrl(hwnd, lbl_ids[slot]);
+        hi = ctrl(hwnd, inp_ids[slot]);
+        if (hl) { SetWindowTextW(hl, ws_mortgage_all[i]); ShowWindow(hl, SW_SHOW); }
+        if (hi) ShowWindow(hi, SW_SHOW);
+        slot++;
     }
+    /* Hide unused slots */
+    for (i = slot; i < 6; i++) {
+        HWND hl = ctrl(hwnd, lbl_ids[i]);
+        HWND hi = ctrl(hwnd, inp_ids[i]);
+        if (hl) ShowWindow(hl, SW_HIDE);
+        if (hi) ShowWindow(hi, SW_HIDE);
+    }
+    set_ctrl_text(hwnd, ID_WS_RES, L"");
+}
 
+/* ── Generic populate for non-mortgage worksheets ────────────────── */
+static void generic_populate_fields(HWND hwnd, const WCHAR **labels) {
+    static const int lbl_ids[] = {ID_WS_LBL1,ID_WS_LBL2,ID_WS_LBL3,
+                                   ID_WS_LBL4,ID_WS_LBL5,ID_WS_LBL6};
+    static const int inp_ids[] = {ID_WS_IN1,ID_WS_IN2,ID_WS_IN3,
+                                   ID_WS_IN4,ID_WS_IN5,ID_WS_IN6};
+    int i;
     for (i = 0; i < 6; i++) {
         HWND hl = ctrl(hwnd, lbl_ids[i]);
         HWND hi = ctrl(hwnd, inp_ids[i]);
@@ -325,34 +352,158 @@ void panel_ws_populate(HWND hwnd, int ws_type) {
     set_ctrl_text(hwnd, ID_WS_RES, L"");
 }
 
+void panel_ws_populate(HWND hwnd, int ws_type) {
+    switch (ws_type) {
+        case WS_MORTGAGE:
+            mortgage_populate_fields(hwnd);
+            break;
+        case WS_VEHICLE:
+            generic_populate_fields(hwnd, ws_vehicle_labels);
+            break;
+        case WS_FUEL_MPG:
+            generic_populate_fields(hwnd, ws_mpg_labels);
+            break;
+        default:
+            generic_populate_fields(hwnd, ws_lkm_labels);
+            break;
+    }
+}
+
+/* Called when the worksheet combo selection changes */
+void panel_ws_combo_changed(HWND hwnd, int ws_type) {
+    if (ws_type == WS_MORTGAGE)
+        mortgage_populate_fields(hwnd);
+}
+
 static double get_ws_val(HWND hwnd, int id) {
     WCHAR buf[64];
     GetWindowTextW(ctrl(hwnd, id), buf, 64);
     return wcstod(buf, NULL);
 }
 
-void panel_ws_calculate(HWND hwnd, int ws_type) {
+/* ── Mortgage solve ─────────────────────────────────────────────────
+   The four input fields map to whichever mortgage variables are NOT
+   the solve-for target. We read them in order and assign to the
+   four "other" variables. */
+static void mortgage_calculate(HWND hwnd) {
+    /* Move all declarations to the top of the block */
+    static const int inp_ids[] = {ID_WS_IN1, ID_WS_IN2, ID_WS_IN3, ID_WS_IN4};
+    int solve;
+    double vals[4];
+    double price, down, years, rate, payment;
+    double r, n, pn, principal;
     WCHAR res[128];
+    int slot = 0, i;
 
-    switch (ws_type) {
-        case WS_MORTGAGE: {
-            double price  = get_ws_val(hwnd, ID_WS_IN1);
-            double down   = get_ws_val(hwnd, ID_WS_IN2);
-            double years  = get_ws_val(hwnd, ID_WS_IN3);
-            double annual = get_ws_val(hwnd, ID_WS_IN4);
-            double principal = price - down;
-            double r = annual / 100.0 / 12.0;
-            double n = years * 12.0;
-            double payment;
-            if (r == 0.0) {
+    /* Executable code starts here */
+    solve = get_combo_sel(hwnd, ID_WS_COMBO);
+    if (solve < 0) solve = 0;
+
+    /* Read the 4 input fields */
+    for (i = 0; i < 4; i++)
+        vals[i] = get_ws_val(hwnd, inp_ids[i]);
+
+    /* Map vals[] back to the 5 mortgage variables.
+       The solve-for variable gets 0; the rest get vals[slot++]. */
+    slot = 0;
+    payment = price = down = years = rate = 0.0;
+    for (i = 0; i < MORTGAGE_FIELD_COUNT; i++) {
+        double v = (i == solve) ? 0.0 : vals[slot++];
+        switch (i) {
+            case 0: payment = v; break;
+            case 1: price   = v; break;
+            case 2: down    = v; break;
+            case 3: years   = v; break;
+            case 4: rate    = v; break;
+        }
+    }
+
+    r = rate / 100.0 / 12.0;
+    n = years * 12.0;
+
+    switch (solve) {
+        case 0: /* Solve for Monthly payment */
+            principal = price - down;
+            if (r == 0.0)
                 payment = (n > 0) ? principal / n : 0;
-            } else {
-                double pn = pow(1 + r, n);
+            else {
+                pn = pow(1 + r, n);
                 payment = principal * r * pn / (pn - 1.0);
             }
             swprintf(res, 128, L"Monthly payment: $%.2f", payment);
             break;
+
+        case 1: /* Solve for Purchase price */
+            if (r == 0.0)
+                price = (n > 0) ? payment * n + down : down;
+            else {
+                pn = pow(1 + r, n);
+                price = payment * (pn - 1.0) / (r * pn) + down;
+            }
+            swprintf(res, 128, L"Purchase price: $%.2f", price);
+            break;
+
+        case 2: /* Solve for Down payment */
+            if (r == 0.0)
+                principal = (n > 0) ? payment * n : 0;
+            else {
+                pn = pow(1 + r, n);
+                principal = payment * (pn - 1.0) / (r * pn);
+            }
+            down = price - principal;
+            swprintf(res, 128, L"Down payment: $%.2f", down);
+            break;
+
+        case 3: /* Solve for Term (years) */
+            principal = price - down;
+            if (r == 0.0)
+                years = (payment > 0) ? principal / payment / 12.0 : 0;
+            else {
+                double x = 1.0 - principal * r / payment;
+                if (x <= 0) { swprintf(res, 128, L"Cannot solve"); break; }
+                n = -log(x) / log(1 + r);
+                years = n / 12.0;
+            }
+            swprintf(res, 128, L"Term: %.1f years", years);
+            break;
+
+        case 4: /* Solve for Interest rate — Newton's method */
+        {
+            double guess = 0.05 / 12.0; 
+            int iter;
+            principal = price - down;
+            if (principal <= 0 || payment <= 0 || n <= 0) {
+                swprintf(res, 128, L"Invalid inputs"); break;
+            }
+            for (iter = 0; iter < 200; iter++) {
+                double pg = pow(1 + guess, n);
+                double f  = principal * guess * pg / (pg - 1.0) - payment;
+                double h = 1e-8;
+                double pg2 = pow(1 + guess + h, n);
+                double f2  = principal * (guess+h) * pg2 / (pg2 - 1.0) - payment;
+                double dp = (f2 - f) / h;
+                if (fabs(dp) < 1e-15) break;
+                guess -= f / dp;
+                if (guess < 0) guess = 1e-6;
+                if (fabs(f) < 0.001) break;
+            }
+            rate = guess * 12.0 * 100.0;
+            swprintf(res, 128, L"Interest rate: %.3f%%", rate);
+            break;
         }
+        default:
+            res[0] = L'\0';
+    }
+    set_ctrl_text(hwnd, ID_WS_RES, res);
+}
+
+void panel_ws_calculate(HWND hwnd, int ws_type) {
+    WCHAR res[128];
+
+    switch (ws_type) {
+        case WS_MORTGAGE:
+            mortgage_calculate(hwnd);
+            return;
         case WS_VEHICLE: {
             double msrp     = get_ws_val(hwnd, ID_WS_IN1);
             double res_pct  = get_ws_val(hwnd, ID_WS_IN2);

@@ -1,15 +1,4 @@
-/* ────────────────────────────────────────────────────────────────────
-   calc_update.c — UI state, layout dispatch, mode/panel switching.
-
-   Switching sequence:
-     1. Update g_mode / g_panel / g_worksheet.
-     2. ui_rebuild_mode — destroys old children, creates new ones.
-     3. apply_window_size — resizes the window AND runs layout.
-     4. Update menu checkmarks.
-
-   apply_window_size (in calc_window.c) always calls ui_update_layout
-   after SetWindowPos, so we don't need a separate call here.
-   ──────────────────────────────────────────────────────────────────── */
+/* calc_update.c — UI state, layout dispatch, mode/panel switching. */
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
@@ -23,7 +12,6 @@
 
 extern void ui_destroy_children(void);
 
-/* ── Global UI state ── */
 int   g_mode       = MODE_STANDARD;
 int   g_panel      = PANEL_NONE;
 int   g_worksheet  = WS_MORTGAGE;
@@ -92,11 +80,8 @@ void compute_layout(HWND hwnd, Layout *L) {
 void ui_update_layout(HWND hwnd) {
     Layout L;
     compute_layout(hwnd, &L);
-    /* Skip bogus sizes during very early WM_SIZE (before client
-       rect is established) or if window is minimized. */
     if (L.bw <= 0 || L.bh <= 0 || L.win_w <= 0 || L.win_h <= 0)
         return;
-
     recreate_fonts(L.bh, L.disp_h);
     move_ctrl(hwnd, ID_DISPLAY, L.disp_x, L.disp_y, L.disp_w, L.disp_h);
     switch (g_mode) {
@@ -211,8 +196,6 @@ void ui_rebuild_mode(HWND hwnd) {
     ui_update_display(hwnd);
 }
 
-/* ── Switch functions ──────────────────────────────────────────────── */
-
 void ui_switch_mode(HWND hwnd, int new_mode) {
     g_mode = new_mode;
     ui_rebuild_mode(hwnd);
@@ -237,18 +220,36 @@ void ui_show_worksheet(HWND hwnd, int ws_type) {
 }
 
 void ui_update_menu_check(HMENU hMenu) {
-    int modes[4], i;
-    modes[0] = ID_VIEW_STANDARD;
-    modes[1] = ID_VIEW_SCIENTIFIC;
-    modes[2] = ID_VIEW_PROGRAMMER;
-    modes[3] = ID_VIEW_STATISTICS;
+    int i;
+    static const int mode_ids[4] = {
+        ID_VIEW_STANDARD, ID_VIEW_SCIENTIFIC,
+        ID_VIEW_PROGRAMMER, ID_VIEW_STATISTICS
+    };
+    static const int ws_ids[4] = {
+        ID_WS_MORTGAGE, ID_WS_VEHICLE,
+        ID_WS_FUEL_MPG, ID_WS_FUEL_LKM
+    };
+
+    /* Mode bullets */
     for (i = 0; i < 4; i++)
-        CheckMenuItem(hMenu, modes[i], MF_BYCOMMAND |
+        CheckMenuItem(hMenu, mode_ids[i], MF_BYCOMMAND |
             (g_mode == i ? MF_CHECKED : MF_UNCHECKED));
+
+    /* Panel toggles */
     CheckMenuItem(hMenu, ID_VIEW_HISTORY,
         g_panel == PANEL_HISTORY ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(hMenu, ID_PANEL_UNIT,
+        g_panel == PANEL_UNIT    ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(hMenu, ID_PANEL_DATE,
+        g_panel == PANEL_DATE    ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(hMenu, ID_VIEW_DIGIT_GRP,
         digit_grouping           ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(hMenu, ID_VIEW_BASIC,
         g_basic_mode             ? MF_CHECKED : MF_UNCHECKED);
+
+    /* Worksheet sub-menu bullets */
+    for (i = 0; i < 4; i++)
+        CheckMenuItem(hMenu, ws_ids[i], MF_BYCOMMAND |
+            ((g_panel == PANEL_WORKSHEET && g_worksheet == i)
+             ? MF_CHECKED : MF_UNCHECKED));
 }
