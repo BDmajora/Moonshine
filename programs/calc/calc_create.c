@@ -1,6 +1,7 @@
 #include "calc_defs.h"
 #include "calc_panel.h"
 #include "calc_mortgage.h"
+#include "calc_vehicleLease.h"
 
 /* Wrapper: raw CreateWindowW + register in one call */
 static HWND make_raw(HWND parent, LPCWSTR cls, LPCWSTR text,
@@ -235,16 +236,18 @@ static void create_worksheet_panel(HWND hwnd, int ws_type) {
                                    ID_WS_LBL4,ID_WS_LBL5,ID_WS_LBL6};
     static const int inp_ids[] = {ID_WS_IN1,ID_WS_IN2,ID_WS_IN3,
                                    ID_WS_IN4,ID_WS_IN5,ID_WS_IN6};
+    
     make_label(hwnd, 357, L"Select the value you want to calculate");
     make_combo(hwnd, ID_WS_COMBO);
+
     /* Combo entries are populated by panel_ws_populate (which calls
-       into calc_mortgage.c for mortgage worksheets).  Don't hardcode
-       entries here — that was the old bug where mortgage only had
-       3 of the 5 solve-for options. */
+       into calc_mortgage.c and calc_vehicleLease.c). Don't hardcode
+       entries here. */
     for (i = 0; i < 6; i++) {
         make_label(hwnd, lbl_ids[i], L"");
         make_edit( hwnd, inp_ids[i], L"Enter value");
     }
+    
     make_button(hwnd, ID_WS_CALC, L"Calculate", TRUE);
     make_label( hwnd, ID_WS_RES,  L"");
     panel_ws_populate(hwnd, ws_type);

@@ -2,6 +2,7 @@
 #include "calc_logic.h"
 #include "calc_ui.h"
 #include "calc_mortgage.h"
+#include "calc_vehicleLease.h"
 #include <math.h>
 #include <wchar.h>
 #include <stdlib.h>
@@ -281,16 +282,8 @@ void panel_date_calculate(HWND hwnd) {
 
 /* ════════════════════════════════════════════════════════════════════
    WORKSHEETS
-
-   Mortgage worksheet logic lives in calc_mortgage.c — this file just
-   delegates to it. The other three worksheets are simple enough to
-   keep inline.
    ════════════════════════════════════════════════════════════════════ */
 
-static const WCHAR *ws_vehicle_labels[] = {
-    L"MSRP", L"Residual value (%)", L"Down payment",
-    L"Lease term (months)", L"Interest rate (%)", NULL
-};
 static const WCHAR *ws_mpg_labels[] = {
     L"Distance (miles)", L"Fuel used (gallons)", NULL
 };
@@ -325,7 +318,7 @@ void panel_ws_populate(HWND hwnd, int ws_type) {
             mortgage_init_combo(hwnd);
             break;
         case WS_VEHICLE:
-            generic_populate_fields(hwnd, ws_vehicle_labels);
+            vlease_init_combo(hwnd); /* Routes to calc_vehicleLease.c */
             break;
         case WS_FUEL_MPG:
             generic_populate_fields(hwnd, ws_mpg_labels);
@@ -338,8 +331,14 @@ void panel_ws_populate(HWND hwnd, int ws_type) {
 
 /* Called from cmd dispatch when the worksheet combo selection changes. */
 void panel_ws_combo_changed(HWND hwnd, int ws_type) {
-    if (ws_type == WS_MORTGAGE)
-        mortgage_refresh_fields(hwnd);
+    switch (ws_type) {
+        case WS_MORTGAGE:
+            mortgage_refresh_fields(hwnd);
+            break;
+        case WS_VEHICLE:
+            vlease_refresh_fields(hwnd); /* Routes to calc_vehicleLease.c */
+            break;
+    }
 }
 
 static double get_ws_val(HWND hwnd, int id) {
@@ -355,19 +354,9 @@ void panel_ws_calculate(HWND hwnd, int ws_type) {
         case WS_MORTGAGE:
             mortgage_calculate(hwnd);
             return;
-        case WS_VEHICLE: {
-            double msrp     = get_ws_val(hwnd, ID_WS_IN1);
-            double res_pct  = get_ws_val(hwnd, ID_WS_IN2);
-            double down     = get_ws_val(hwnd, ID_WS_IN3);
-            double months   = get_ws_val(hwnd, ID_WS_IN4);
-            double rate     = get_ws_val(hwnd, ID_WS_IN5);
-            double residual = msrp * res_pct / 100.0;
-            double depreciation = (msrp - down - residual) / (months > 0 ? months : 1);
-            double finance_charge = (msrp - down + residual) * (rate / 100.0 / 24.0);
-            double monthly = depreciation + finance_charge;
-            swprintf(res, 128, L"Monthly lease: $%.2f", monthly);
-            break;
-        }
+        case WS_VEHICLE:
+            vlease_calculate(hwnd); /* Routes to calc_vehicleLease.c */
+            return;
         case WS_FUEL_MPG: {
             double dist = get_ws_val(hwnd, ID_WS_IN1);
             double fuel = get_ws_val(hwnd, ID_WS_IN2);
