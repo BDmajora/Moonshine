@@ -89,8 +89,16 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         }
 
-        case WM_ERASEBKGND:
+        case WM_ERASEBKGND: {
+            /* Actually erase the background — the old "return 1" was a
+               lie that left ghost pixels from destroyed controls when
+               the window shrank (e.g. Scientific → Standard). */
+            HDC hdc = (HDC)wp;
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, (HBRUSH)(COLOR_BTNFACE + 1));
             return 1;
+        }
 
         case WM_KEYDOWN: {
             BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -104,15 +112,6 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_GETMINMAXINFO: {
-            /* Lock window to exactly the required size for the current
-               mode + panel.  Setting both min and max to the same value
-               prevents the user (and the WM) from resizing the window,
-               which eliminates the jiggle-to-resize bug entirely.
-
-               When mode/panel changes, apply_window_size calls
-               SetWindowPos, which triggers a fresh WM_GETMINMAXINFO
-               with the NEW g_mode/g_panel, so the lock naturally
-               updates to the new size. */
             MINMAXINFO *mmi = (MINMAXINFO *)lp;
             DWORD style = (DWORD)GetWindowLongW(hwnd, GWL_STYLE);
             int cw, ch, ww, wh;
@@ -173,9 +172,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
 
     ui_update_menu_check(hMenu);
     ShowWindow(hwnd, cmdshow);
-
-    /* Guarantee first-run layout: apply_window_size both resizes
-       the window (SetWindowPos) and runs ui_update_layout. */
     apply_window_size(hwnd, g_mode, g_panel);
     UpdateWindow(hwnd);
 

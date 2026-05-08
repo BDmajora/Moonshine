@@ -1,10 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────
    calc_window.c — window sizing.
-
-   apply_window_size() is the ONLY place the window outer size changes.
-   It ALWAYS calls SetWindowPos (even if we think the size is the same —
-   Wine rounds differently than we expect) and ALWAYS runs layout
-   afterward so we never depend on WM_SIZE firing.
    ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include "calc.h"
@@ -65,15 +60,19 @@ void apply_window_size(HWND hwnd, int mode, int panel) {
     get_required_client_size(mode, panel, &cw, &ch);
     get_window_size(cw, ch, style, &ww, &wh);
 
-    /* ALWAYS call SetWindowPos — don't try to optimize away same-size
-       calls.  Wine rounds frame sizes differently and "same size" on
-       our side can be different on the server side.  The only flag
-       that matters is SWP_NOMOVE. */
     SetWindowPos(hwnd, NULL, 0, 0, ww, wh,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    /* Run layout unconditionally — WM_SIZE may or may not have fired
-       by this point.  This is the canonical "make everything right"
-       call and it's fast (just MoveWindow on existing children). */
+    /* Layout against the now-correct client rect. */
     ui_update_layout(hwnd);
+
+    /* Force a full erase + repaint of the entire window and every
+       child.  This nukes ghost pixels left behind when the window
+       shrinks (e.g. Scientific → Standard): the old, larger area
+       had button pixels that persist because WM_ERASEBKGND only
+       fires for the invalidated region, which after a shrink is
+       empty.  RedrawWindow with RDW_ERASE forces the background
+       fill over the entire client rect. */
+    RedrawWindow(hwnd, NULL, NULL,
+                 RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
