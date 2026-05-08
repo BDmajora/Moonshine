@@ -17,4 +17,5 @@ SOURCES = \
     calc_layout.c \
     calc_update.c \
     calc_panel.c \
+    calc_window.c \
     calc.rc

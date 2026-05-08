@@ -1,13 +1,42 @@
+/* ────────────────────────────────────────────────────────────────────
+   calc_widgets.c — control factories and the child-window registry.
+
+   Every HWND we create is registered in s_children[] so that
+   ui_rebuild_mode() can destroy exactly the controls it created on
+   the previous mode/panel. No EnumChildWindows, no Z-order walks.
+
+   Moved registry here (from calc_update.c) so factories and the list
+   they populate live in one file. move_ctrl uses bRepaint=FALSE; the
+   layout pass invalidates the whole window once at the end instead.
+   That removes the ghost-button flicker seen when switching modes.
+   ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include "calc_defs.h"
 
-void move_ctrl(HWND hwnd, int id, int x, int y, int w, int h) {
-    HWND c = GetDlgItem(hwnd, id);
-    if (c) MoveWindow(c, x, y, w, h, TRUE);
+#define MAX_CHILDREN 600
+static HWND s_children[MAX_CHILDREN];
+static int  s_child_count = 0;
+
+void ui_register_child(HWND h) {
+    if (h && s_child_count < MAX_CHILDREN)
+        s_children[s_child_count++] = h;
 }
 
-/* Every factory wraps CreateWindowW and calls ui_register_child so
-   ui_rebuild_mode always has a complete list to destroy. */
+void ui_destroy_children(void) {
+    int i;
+    for (i = 0; i < s_child_count; i++) {
+        if (s_children[i] && IsWindow(s_children[i]))
+            DestroyWindow(s_children[i]);
+        s_children[i] = NULL;
+    }
+    s_child_count = 0;
+}
+
+void move_ctrl(HWND hwnd, int id, int x, int y, int w, int h) {
+    HWND c = GetDlgItem(hwnd, id);
+    /* bRepaint=FALSE: the parent does one InvalidateRect at end of layout */
+    if (c) MoveWindow(c, x, y, w, h, FALSE);
+}
 
 HWND make_button(HWND parent, int id, const WCHAR *label, BOOL def_btn) {
     DWORD style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON;

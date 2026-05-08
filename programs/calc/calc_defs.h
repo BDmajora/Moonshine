@@ -13,7 +13,6 @@
 #define IDC_ABOUT_AUTHORS 500
 #define IDC_ABOUT_LICENSE 501
 
-/* Icon ID */
 #define IDI_CALC          10
 
 /* *** Modes *** */
@@ -73,7 +72,6 @@
 #define ID_DISP_BITS      201
 #define ID_DISP_HISTORY   202
 
-/* Digit buttons */
 #define ID_0              100
 #define ID_1              101
 #define ID_2              102
@@ -85,7 +83,6 @@
 #define ID_8              108
 #define ID_9              109
 
-/* Hex letters */
 #define ID_A              110
 #define ID_B              111
 #define ID_C_HEX          112
@@ -93,7 +90,6 @@
 #define ID_E_HEX          114
 #define ID_F              115
 
-/* Standard Operators */
 #define ID_DOT            120
 #define ID_ADD            121
 #define ID_SUB            122
@@ -108,14 +104,12 @@
 #define ID_PERCENT        131
 #define ID_RECIP          132
 
-/* Memory */
 #define ID_MC             140
 #define ID_MR             141
 #define ID_MS             142
 #define ID_MPLUS          143
 #define ID_MMINUS         144
 
-/* Scientific Extras */
 #define ID_SCI_INV        150
 #define ID_SCI_LN         151
 #define ID_SCI_LOG        152
@@ -144,7 +138,6 @@
 #define ID_RAD_RAD        181
 #define ID_RAD_GRAD       182
 
-/* Programmer Extras */
 #define ID_PROG_AND       190
 #define ID_PROG_OR        191
 #define ID_PROG_XOR       192
@@ -165,7 +158,6 @@
 #define ID_RADIO_WORD     222
 #define ID_RADIO_BYTE     223
 
-/* Statistics */
 #define ID_STAT_ADD       230
 #define ID_STAT_CAD       231
 #define ID_STAT_FE        232
@@ -177,7 +169,6 @@
 #define ID_STAT_SDEV      238
 #define ID_STAT_SDEV1     239
 
-/* Side panel / Worksheet controls */
 #define ID_PANEL_CLOSE    300
 #define ID_PANEL_COMBO    301
 #define ID_UNIT_TYPE      302
@@ -209,7 +200,6 @@
 #define ID_WS_LBL5        334
 #define ID_WS_LBL6        335
 
-/* Menu Items */
 #define ID_VIEW_STANDARD   401
 #define ID_VIEW_SCIENTIFIC 402
 #define ID_VIEW_PROGRAMMER 403
@@ -222,7 +212,6 @@
 #define ID_PANEL_WORKSHEET 415
 #define ID_HELP_ABOUT      420
 
-/* Sub-items (worksheets submenu) */
 #define ID_WS_MORTGAGE     430
 #define ID_WS_VEHICLE      431
 #define ID_WS_FUEL_MPG     432
@@ -250,15 +239,22 @@ typedef struct {
     int panel_x, panel_w;
 } Layout;
 
-/* *** Function Prototypes *** */
+/* *** Widget factories + child registry (calc_widgets.c) *** */
 void  move_ctrl(HWND hwnd, int id, int x, int y, int w, int h);
 HWND  make_button(HWND p, int id, const WCHAR *lbl, BOOL def);
 HWND  make_radio(HWND p, int id, const WCHAR *lbl, BOOL first);
 HWND  make_label(HWND p, int id, const WCHAR *text);
 HWND  make_edit(HWND p, int id, const WCHAR *text);
 HWND  make_combo(HWND p, int id);
-void  ui_register_child(HWND hwnd);  /* ADDED PROTOTYPE HERE */
+void  ui_register_child(HWND hwnd);
+void  ui_destroy_children(void);
 
+/* *** Window sizing (calc_window.c) *** */
+void  get_window_size(int client_w, int client_h, DWORD style, int *ww, int *wh);
+void  get_required_client_size(int mode, int panel, int *w, int *h);
+void  apply_window_size(HWND hwnd, int mode, int panel);
+
+/* *** UI updates (calc_update.c) *** */
 void  recreate_fonts(int btn_h, int disp_h);
 void  compute_layout(HWND hwnd, Layout *L);
 void  ui_update_layout(HWND hwnd);
@@ -275,14 +271,17 @@ void  ui_show_panel(HWND hwnd, int new_panel);
 void  ui_show_worksheet(HWND hwnd, int ws_type);
 void  ui_create_controls(HWND hwnd);
 
+/* *** Layout (calc_layout.c) *** */
 void  layout_standard(HWND hwnd, Layout *L);
 void  layout_scientific(HWND hwnd, Layout *L);
 void  layout_programmer(HWND hwnd, Layout *L);
 void  layout_statistics(HWND hwnd, Layout *L);
 void  layout_panel(HWND hwnd, Layout *L);
 
+/* *** Dispatch *** */
 void  on_command(HWND hwnd, int id);
 void  sci_unary(HWND hwnd, int id);
 LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+HMENU create_menu(void);
 
 #endif /* CALC_DEFS_H */

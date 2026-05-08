@@ -1,3 +1,23 @@
+/* ────────────────────────────────────────────────────────────────────
+   calc_update.c — UI state, layout dispatch, mode/panel switching.
+
+   Key fix: ui_switch_mode / ui_show_panel / ui_show_worksheet now
+   REBUILD CONTROLS BEFORE RESIZING THE WINDOW.  The old order was
+       apply_window_size  → ui_rebuild_mode → ui_update_layout
+   but apply_window_size triggers a synchronous WM_SIZE, which calls
+   ui_update_layout against the OLD set of controls.  That's what
+   caused the ghost buttons in the screenshot — Standard's "8" got
+   move_ctrl'd into Statistics' "8" position before being destroyed,
+   and the immediate repaint left visible artifacts.
+
+   New order:
+       ui_rebuild_mode   → apply_window_size → ui_update_layout
+   The WM_SIZE from apply_window_size now hits the NEW controls only.
+   The trailing ui_update_layout is the canonical layout for the new
+   client size.
+
+   Child registry moved to calc_widgets.c (next to the factories).
+   ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
@@ -8,7 +28,11 @@
 #include "calc_defs.h"
 #include "calc_logic.h"
 #include "calc_panel.h"
-#include "calc_appMenu.h"
+
+/* From calc_window.c */
+extern void apply_window_size(HWND hwnd, int mode, int panel);
+/* From calc_widgets.c */
+extern void ui_destroy_children(void);
 
 /* ── Global UI state ── */
 int   g_mode       = MODE_STANDARD;
@@ -19,20 +43,6 @@ BOOL  g_basic_mode = FALSE;
 HFONT hBtnFont   = NULL;
 HFONT hDispFont  = NULL;
 HFONT hSmallFont = NULL;
-
-/* ── Child window registry ───────────────────────────────────────────
-   Every HWND created by ui_create_controls is registered here.
-   ui_rebuild_mode destroys exactly these handles — no enumeration,
-   no Z-order walking, no grandchild confusion.
-   This is the ONLY reliable approach on Wine + Windows. */
-#define MAX_CHILDREN 600
-static HWND s_children[MAX_CHILDREN];
-static int  s_child_count = 0;
-
-void ui_register_child(HWND h) {
-    if (h && s_child_count < MAX_CHILDREN)
-        s_children[s_child_count++] = h;
-}
 
 static BOOL CALLBACK SetFontProc(HWND h, LPARAM lp) {
     SendMessageW(h, WM_SETFONT, (WPARAM)lp, TRUE);
@@ -105,6 +115,7 @@ void ui_update_layout(HWND hwnd) {
         layout_panel(hwnd, &L);
     EnumChildWindows(hwnd, SetFontProc, (LPARAM)hBtnFont);
     SendMessageW(GetDlgItem(hwnd, ID_DISPLAY), WM_SETFONT, (WPARAM)hDispFont, TRUE);
+    /* Single repaint at the end — children were moved with bRepaint=FALSE */
     InvalidateRect(hwnd, NULL, TRUE);
 }
 
@@ -201,38 +212,33 @@ void ui_update_prog_buttons(HWND hwnd) {
         EnableWindow(GetDlgItem(hwnd, id), oct);
 }
 
-/* ── ui_rebuild_mode ─────────────────────────────────────────────────
-   Destroys exactly the HWNDs registered in s_children[] during the
-   last ui_create_controls call. No enumeration, no Z-order walking —
-   we own the list so it is always complete and correct. */
+/* ── Rebuild controls for the current g_mode/g_panel ──────────────── */
 void ui_rebuild_mode(HWND hwnd) {
-    int i;
-    /* Destroy every child we registered */
-    for (i = 0; i < s_child_count; i++) {
-        if (s_children[i] && IsWindow(s_children[i]))
-            DestroyWindow(s_children[i]);
-        s_children[i] = NULL;
-    }
-    s_child_count = 0;
-
-    /* Create new controls for current mode/panel */
+    ui_destroy_children();
     ui_create_controls(hwnd);
     ui_update_display(hwnd);
 }
 
-/* ── Unified switch functions ────────────────────────────────────── */
+/* ── Unified switch functions ─────────────────────────────────────────
+   ORDER MATTERS:
+     1. Set state flags (g_mode / g_panel / g_worksheet).
+     2. Rebuild controls — destroys old, creates new (still 0×0).
+     3. Apply window size — fires WM_SIZE, which lays out the NEW set.
+     4. ui_update_layout — explicit canonical layout (in case 3 was a no-op).
+     5. Update menu checkmarks. */
+
 void ui_switch_mode(HWND hwnd, int new_mode) {
     g_mode = new_mode;
-    apply_window_size(hwnd, g_mode, g_panel);
     ui_rebuild_mode(hwnd);
+    apply_window_size(hwnd, g_mode, g_panel);
     ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
 
 void ui_show_panel(HWND hwnd, int new_panel) {
     g_panel = (g_panel == new_panel) ? PANEL_NONE : new_panel;
-    apply_window_size(hwnd, g_mode, g_panel);
     ui_rebuild_mode(hwnd);
+    apply_window_size(hwnd, g_mode, g_panel);
     ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
@@ -241,8 +247,8 @@ void ui_show_worksheet(HWND hwnd, int ws_type) {
     if (g_panel == PANEL_WORKSHEET && g_worksheet == ws_type)
         g_panel = PANEL_NONE;
     else { g_worksheet = ws_type; g_panel = PANEL_WORKSHEET; }
-    apply_window_size(hwnd, g_mode, g_panel);
     ui_rebuild_mode(hwnd);
+    apply_window_size(hwnd, g_mode, g_panel);
     ui_update_layout(hwnd);
     ui_update_menu_check(GetMenu(hwnd));
 }
