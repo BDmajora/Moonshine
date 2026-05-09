@@ -149,7 +149,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     INITCOMMONCONTROLSEX icc;
 
     icc.dwSize = sizeof(icc);
-    icc.dwICC  = ICC_WIN95_CLASSES;
+    icc.dwICC  = ICC_WIN95_CLASSES | ICC_DATE_CLASSES;
     InitCommonControlsEx(&icc);
 
     ZeroMemory(&wc, sizeof(wc));

@@ -1,4 +1,5 @@
 #include "calc_ui.h"
+#include "calc_dateCalculation.h"
 
 /* ── Shared geometry — must match GM_* in calc_appMenu.c ──────────── */
 #define LY_BTN_W    44
@@ -272,17 +273,9 @@ void layout_panel(HWND hwnd, Layout *L) {
             break;
 
         case PANEL_DATE:
-            move_ctrl(hwnd, 353,          px,          py, wide,   lh); py += lh+g;
-            move_ctrl(hwnd, ID_DATE_TYPE, px,          py, wide,   ch); py += ch+g*2;
-            move_ctrl(hwnd, 354,          px,          py, wide/2, lh);
-            move_ctrl(hwnd, 355,          px+wide/2+g, py, wide/2, lh);
-            py += lh+g;
-            move_ctrl(hwnd, ID_DATE_FROM, px,          py, wide/2, eh);
-            move_ctrl(hwnd, ID_DATE_TO,   px+wide/2+g, py, wide/2, eh);
-            py += eh+g*2;
-            move_ctrl(hwnd, ID_DATE_CALC, px, py, wide,   bh2); py += bh2+g*2;
-            move_ctrl(hwnd, ID_DATE_RES1, px, py, wide,   lh*2); py += lh*2+g;
-            move_ctrl(hwnd, ID_DATE_RES2, px, py, wide,   lh);
+            /* Delegated to calc_dateCalculation.c — both modes have
+               very different layouts and the module owns its controls. */
+            date_layout(hwnd, px, py, wide, g);
             break;
 
         case PANEL_HISTORY:

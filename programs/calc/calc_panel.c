@@ -4,6 +4,7 @@
 #include "calc_mortgage.h"
 #include "calc_vehicleLease.h"
 #include "calc_fuelEconomy.h"
+#include "calc_dateCalculation.h"
 #include <math.h>
 #include <wchar.h>
 #include <stdlib.h>
@@ -189,95 +190,20 @@ void panel_unit_on_command(HWND hwnd, int id) {
 
 /* ════════════════════════════════════════════════════════════════════
    DATE PANEL
+
+   Delegated to calc_dateCalculation.c — that module owns the controls
+   and the math. These wrappers exist only so calc_cmdDispatch.c and
+   any other external caller don't need to change.
    ════════════════════════════════════════════════════════════════════ */
 
-static void systemtime_to_str(const SYSTEMTIME *st, WCHAR *buf, int n) {
-    swprintf(buf, n, L"%04d-%02d-%02d", st->wYear, st->wMonth, st->wDay);
-}
-
-static long long date_to_jdn(int y, int m, int d) {
-    long long a = (14 - m) / 12;
-    long long Y = y + 4800 - a;
-    long long M = m + 12 * a - 3;
-    return d + (153 * M + 2) / 5 + 365 * Y + Y / 4 - Y / 100 + Y / 400 - 32045;
-}
-
 void panel_date_populate(HWND hwnd) {
-    SYSTEMTIME st;
-    WCHAR buf[32];
-    GetLocalTime(&st);
-    systemtime_to_str(&st, buf, 32);
-    set_ctrl_text(hwnd, ID_DATE_FROM, buf);
-    set_ctrl_text(hwnd, ID_DATE_TO,   buf);
-
-    combo_clear(hwnd, ID_DATE_TYPE);
-    combo_add(hwnd, ID_DATE_TYPE, L"Calculate the difference between two dates");
-    combo_add(hwnd, ID_DATE_TYPE, L"Add days to a date");
-    combo_add(hwnd, ID_DATE_TYPE, L"Subtract days from a date");
-    combo_sel(hwnd, ID_DATE_TYPE, 0);
+    /* No-op — date_create_controls (called from create_date_panel)
+       sets everything up including the combo entries. */
+    (void)hwnd;
 }
 
 void panel_date_calculate(HWND hwnd) {
-    int mode = get_combo_sel(hwnd, ID_DATE_TYPE);
-    WCHAR buf1[32], buf2[32], res1[64], res2[64];
-    int y1, m1, d1, y2, m2, d2;
-
-    get_ctrl_text(hwnd, ID_DATE_FROM, buf1, 32);
-    get_ctrl_text(hwnd, ID_DATE_TO,   buf2, 32);
-
-    if (mode == 0) {
-        long long jdn1, jdn2, diff;
-        if (swscanf(buf1, L"%d-%d-%d", &y1, &m1, &d1) != 3 ||
-            swscanf(buf2, L"%d-%d-%d", &y2, &m2, &d2) != 3) {
-            set_ctrl_text(hwnd, ID_DATE_RES1, L"Invalid date format");
-            set_ctrl_text(hwnd, ID_DATE_RES2, L"");
-            return;
-        }
-        jdn1 = date_to_jdn(y1, m1, d1);
-        jdn2 = date_to_jdn(y2, m2, d2);
-        diff = jdn2 - jdn1;
-        if (diff < 0) diff = -diff;
-
-        {
-            int years  = (int)(diff / 365);
-            int rem    = (int)(diff % 365);
-            int months = rem / 30;
-            int days   = rem % 30;
-            int weeks  = (int)(diff / 7);
-            swprintf(res1, 64, L"%d years, %d months, %d days (or %d weeks)",
-                     years, months, days, weeks);
-            swprintf(res2, 64, L"%lld days", diff);
-        }
-    } else {
-        long long jdn, days;
-        WCHAR *end;
-        if (swscanf(buf1, L"%d-%d-%d", &y1, &m1, &d1) != 3) {
-            set_ctrl_text(hwnd, ID_DATE_RES1, L"Invalid date");
-            set_ctrl_text(hwnd, ID_DATE_RES2, L"");
-            return;
-        }
-        days = wcstoll(buf2, &end, 10);
-        if (mode == 2) days = -days;
-        jdn = date_to_jdn(y1, m1, d1) + days;
-
-        {
-            long long l, n, i2, j, ry, rm, rd;
-            l = jdn + 68569;
-            n = (4 * l) / 146097;
-            l = l - (146097 * n + 3) / 4;
-            i2 = (4000 * (l + 1)) / 1461001;
-            l = l - (1461 * i2) / 4 + 31;
-            j = (80 * l) / 2447;
-            rd = l - (2447 * j) / 80;
-            l = j / 11;
-            rm = j + 2 - 12 * l;
-            ry = 100 * (n - 49) + i2 + l;
-            swprintf(res1, 64, L"%04lld-%02lld-%02lld", ry, rm, rd);
-            res2[0] = L'\0';
-        }
-    }
-    set_ctrl_text(hwnd, ID_DATE_RES1, res1);
-    set_ctrl_text(hwnd, ID_DATE_RES2, res2);
+    date_calculate(hwnd);
 }
 
 

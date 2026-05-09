@@ -8,6 +8,7 @@
 #include "calc_ui.h"
 #include "calc_panel.h"
 #include "calc_appMenu.h"
+#include "calc_dateCalculation.h"
 
 void on_command(HWND hwnd, int id) {
 
@@ -59,6 +60,16 @@ void on_command(HWND hwnd, int id) {
            different "solve for" variable. */
     if (id == ID_WS_COMBO) {
         panel_ws_combo_changed(hwnd, g_worksheet);
+        return;
+    }
+
+    /* ── Date panel mode combo: switch between difference/adjust modes,
+           which have completely different controls.  After visibility
+           updates, re-run layout so the visible controls are positioned
+           correctly. */
+    if (id == ID_DATE_TYPE) {
+        date_mode_changed(hwnd);
+        ui_update_layout(hwnd);
         return;
     }
 

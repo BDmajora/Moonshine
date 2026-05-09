@@ -2,6 +2,7 @@
 #include "calc_panel.h"
 #include "calc_mortgage.h"
 #include "calc_vehicleLease.h"
+#include "calc_dateCalculation.h"
 
 /* Wrapper: raw CreateWindowW + register in one call */
 static HWND make_raw(HWND parent, LPCWSTR cls, LPCWSTR text,
@@ -210,16 +211,9 @@ static void create_unit_panel(HWND hwnd) {
 }
 
 static void create_date_panel(HWND hwnd) {
-    make_label( hwnd, 353,         L"Select the date calculation you want");
-    make_combo( hwnd, ID_DATE_TYPE);
-    make_label( hwnd, 354,         L"From");
-    make_edit(  hwnd, ID_DATE_FROM,L"YYYY-MM-DD");
-    make_label( hwnd, 355,         L"To");
-    make_edit(  hwnd, ID_DATE_TO,  L"YYYY-MM-DD");
-    make_button(hwnd, ID_DATE_CALC,L"Calculate", TRUE);
-    make_label( hwnd, ID_DATE_RES1,L"");
-    make_label( hwnd, ID_DATE_RES2,L"");
-    panel_date_populate(hwnd);
+    /* Delegated to calc_dateCalculation.c — handles both modes
+       (date difference / date adjustment) with their own controls. */
+    date_create_controls(hwnd);
 }
 
 static void create_history_panel(HWND hwnd) {

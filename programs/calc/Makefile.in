@@ -21,4 +21,5 @@ SOURCES = \
     calc_mortgage.c \
     calc_vehicleLease.c \
     calc_fuelEconomy.c \
+    calc_dateCalculation.c \
     calc.rc

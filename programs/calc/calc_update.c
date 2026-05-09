@@ -54,7 +54,7 @@ void compute_layout(HWND hwnd, Layout *L) {
     L->gap    = 6;
     L->disp_h = 60;
     if (g_panel != PANEL_NONE) {
-        L->panel_w = 260;
+        L->panel_w = 380;  /* must match GM_PANEL_W in calc_window.c */
         L->panel_x = L->win_w - L->panel_w;
         L->grid_w  = L->panel_x - (L->margin * 2);
     } else {

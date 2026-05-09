@@ -10,7 +10,14 @@
 #define GM_BTN_W    44
 #define GM_BTN_H    34
 #define GM_RADIO_W  (GM_BTN_W + GM_BTN_W / 2)
-#define GM_PANEL_W  260  /* Increased from 260 */
+
+/* Side panel width.  Bumped from 260→380 so:
+   - Date difference mode fits two side-by-side DateTimePickers with
+     "From"/"To" labels.
+   - Date adjust mode fits the From DTP + Add/Subtract radios on one
+     row, and Year/Month/Day spinners on the next.
+   - Worksheet labels like "Fuel economy (L/100 km)" no longer truncate. */
+#define GM_PANEL_W  380
 
 void get_window_size(int client_w, int client_h, DWORD style,
                      int *ww, int *wh) {
@@ -63,16 +70,8 @@ void apply_window_size(HWND hwnd, int mode, int panel) {
     SetWindowPos(hwnd, NULL, 0, 0, ww, wh,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-    /* Layout against the now-correct client rect. */
     ui_update_layout(hwnd);
 
-    /* Force a full erase + repaint of the entire window and every
-       child.  This nukes ghost pixels left behind when the window
-       shrinks (e.g. Scientific → Standard): the old, larger area
-       had button pixels that persist because WM_ERASEBKGND only
-       fires for the invalidated region, which after a shrink is
-       empty.  RedrawWindow with RDW_ERASE forces the background
-       fill over the entire client rect. */
     RedrawWindow(hwnd, NULL, NULL,
                  RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
