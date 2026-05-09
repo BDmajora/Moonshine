@@ -3,6 +3,7 @@
 #include "calc_ui.h"
 #include "calc_mortgage.h"
 #include "calc_vehicleLease.h"
+#include "calc_fuelEconomy.h"
 #include <math.h>
 #include <wchar.h>
 #include <stdlib.h>
@@ -282,97 +283,38 @@ void panel_date_calculate(HWND hwnd) {
 
 /* ════════════════════════════════════════════════════════════════════
    WORKSHEETS
+
+   All four worksheet types now route to dedicated modules:
+     WS_MORTGAGE  → calc_mortgage.c
+     WS_VEHICLE   → calc_vehicleLease.c
+     WS_FUEL_MPG  → calc_fuelEconomy.c (is_lkm=FALSE)
+     WS_FUEL_LKM  → calc_fuelEconomy.c (is_lkm=TRUE)
    ════════════════════════════════════════════════════════════════════ */
-
-static const WCHAR *ws_mpg_labels[] = {
-    L"Distance (miles)", L"Fuel used (gallons)", NULL
-};
-static const WCHAR *ws_lkm_labels[] = {
-    L"Distance (kilometers)", L"Fuel used (liters)", NULL
-};
-
-static const int ws_lbl_ids[] = {ID_WS_LBL1,ID_WS_LBL2,ID_WS_LBL3,
-                                  ID_WS_LBL4,ID_WS_LBL5,ID_WS_LBL6};
-static const int ws_inp_ids[] = {ID_WS_IN1,ID_WS_IN2,ID_WS_IN3,
-                                  ID_WS_IN4,ID_WS_IN5,ID_WS_IN6};
-
-static void generic_populate_fields(HWND hwnd, const WCHAR **labels) {
-    int i;
-    for (i = 0; i < 6; i++) {
-        HWND hl = ctrl(hwnd, ws_lbl_ids[i]);
-        HWND hi = ctrl(hwnd, ws_inp_ids[i]);
-        if (labels[i]) {
-            if (hl) { SetWindowTextW(hl, labels[i]); ShowWindow(hl, SW_SHOW); }
-            if (hi) { SetWindowTextW(hi, L""); ShowWindow(hi, SW_SHOW); }
-        } else {
-            if (hl) ShowWindow(hl, SW_HIDE);
-            if (hi) ShowWindow(hi, SW_HIDE);
-        }
-    }
-    set_ctrl_text(hwnd, ID_WS_RES, L"");
-}
 
 void panel_ws_populate(HWND hwnd, int ws_type) {
     switch (ws_type) {
-        case WS_MORTGAGE:
-            mortgage_init_combo(hwnd);
-            break;
-        case WS_VEHICLE:
-            vlease_init_combo(hwnd); /* Routes to calc_vehicleLease.c */
-            break;
-        case WS_FUEL_MPG:
-            generic_populate_fields(hwnd, ws_mpg_labels);
-            break;
-        default:
-            generic_populate_fields(hwnd, ws_lkm_labels);
-            break;
+        case WS_MORTGAGE:  mortgage_init_combo(hwnd);          break;
+        case WS_VEHICLE:   vlease_init_combo(hwnd);            break;
+        case WS_FUEL_MPG:  fuel_init_combo(hwnd, FALSE);       break;
+        case WS_FUEL_LKM:  fuel_init_combo(hwnd, TRUE);        break;
     }
 }
 
 /* Called from cmd dispatch when the worksheet combo selection changes. */
 void panel_ws_combo_changed(HWND hwnd, int ws_type) {
     switch (ws_type) {
-        case WS_MORTGAGE:
-            mortgage_refresh_fields(hwnd);
-            break;
-        case WS_VEHICLE:
-            vlease_refresh_fields(hwnd); /* Routes to calc_vehicleLease.c */
-            break;
+        case WS_MORTGAGE:  mortgage_refresh_fields(hwnd);      break;
+        case WS_VEHICLE:   vlease_refresh_fields(hwnd);        break;
+        case WS_FUEL_MPG:  fuel_refresh_fields(hwnd, FALSE);   break;
+        case WS_FUEL_LKM:  fuel_refresh_fields(hwnd, TRUE);    break;
     }
-}
-
-static double get_ws_val(HWND hwnd, int id) {
-    WCHAR buf[64];
-    GetWindowTextW(ctrl(hwnd, id), buf, 64);
-    return wcstod(buf, NULL);
 }
 
 void panel_ws_calculate(HWND hwnd, int ws_type) {
-    WCHAR res[128];
-
     switch (ws_type) {
-        case WS_MORTGAGE:
-            mortgage_calculate(hwnd);
-            return;
-        case WS_VEHICLE:
-            vlease_calculate(hwnd); /* Routes to calc_vehicleLease.c */
-            return;
-        case WS_FUEL_MPG: {
-            double dist = get_ws_val(hwnd, ID_WS_IN1);
-            double fuel = get_ws_val(hwnd, ID_WS_IN2);
-            double mpg  = (fuel > 0) ? dist / fuel : 0;
-            swprintf(res, 128, L"Fuel economy: %.2f mpg", mpg);
-            break;
-        }
-        case WS_FUEL_LKM: {
-            double dist = get_ws_val(hwnd, ID_WS_IN1);
-            double fuel = get_ws_val(hwnd, ID_WS_IN2);
-            double lkm  = (dist > 0) ? (fuel / dist) * 100.0 : 0;
-            swprintf(res, 128, L"Fuel economy: %.2f L/100 km", lkm);
-            break;
-        }
-        default:
-            res[0] = L'\0';
+        case WS_MORTGAGE:  mortgage_calculate(hwnd);           break;
+        case WS_VEHICLE:   vlease_calculate(hwnd);             break;
+        case WS_FUEL_MPG:  fuel_calculate(hwnd, FALSE);        break;
+        case WS_FUEL_LKM:  fuel_calculate(hwnd, TRUE);         break;
     }
-    set_ctrl_text(hwnd, ID_WS_RES, res);
 }

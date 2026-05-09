@@ -293,21 +293,35 @@ void layout_panel(HWND hwnd, Layout *L) {
             move_ctrl(hwnd, ID_PANEL_CLOSE, px, py, wide, bh2);
             break;
 
-        case PANEL_WORKSHEET:
+        case PANEL_WORKSHEET: {
+            HWND hc;
+            int lw, iw; /* Declare variables for asymmetric split */
+            
             move_ctrl(hwnd, 357,          px, py, wide, lh); py += lh+g;
             move_ctrl(hwnd, ID_WS_COMBO,  px, py, wide, ch); py += ch+g*2;
+            
+            /* The combo is now much wider, so the dropdown can just match 'wide' */
+            hc = GetDlgItem(hwnd, ID_WS_COMBO);
+            if (hc) SendMessageW(hc, CB_SETDROPPEDWIDTH, wide, 0);
+            
+            /* 45% width for labels, 55% for inputs */
+            lw = (wide * 45) / 100;
+            iw = wide - lw;
+            
             for (i = 0; i < 6; i++) {
                 HWND hl = GetDlgItem(hwnd, lbl_ids[i]);
                 HWND hi = GetDlgItem(hwnd, inp_ids[i]);
                 if (hl && hi) {
-                    move_ctrl(hwnd, lbl_ids[i], px,          py, wide/2,   lh);
-                    move_ctrl(hwnd, inp_ids[i], px+wide/2+g, py, wide/2-g, eh);
-                    py += max(lh, eh) + g;
+                    move_ctrl(hwnd, lbl_ids[i], px,      py, lw, lh);
+                    move_ctrl(hwnd, inp_ids[i], px + lw, py, iw, lh);
+                    py += lh + g;
                 }
             }
-            py += g;
-            move_ctrl(hwnd, ID_WS_CALC, px,          py, wide/2,   bh2);
-            move_ctrl(hwnd, ID_WS_RES,  px+wide/2+g, py, wide/2-g, bh2);
+            
+            /* Move calculate button & result label below the inputs */
+            move_ctrl(hwnd, ID_WS_CALC, px, py, wide, lh + 6); py += lh + 6 + g;
+            move_ctrl(hwnd, ID_WS_RES,  px, py, wide, lh * 2);
             break;
+        }
     }
 }
