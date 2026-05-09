@@ -22,4 +22,5 @@ SOURCES = \
     calc_vehicleLease.c \
     calc_fuelEconomy.c \
     calc_dateCalculation.c \
+    calc_hotkeys.c \
     calc.rc

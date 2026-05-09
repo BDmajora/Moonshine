@@ -1,5 +1,4 @@
 #include "calc_ui.h"
-#include "calc_dateCalculation.h"
 
 /* ── Shared geometry — must match GM_* in calc_appMenu.c ──────────── */
 #define LY_BTN_W    44
@@ -14,14 +13,13 @@ void layout_standard(HWND hwnd, Layout *L) {
     int g   = L->gap;
     int row = 0;
 
-    if (!g_basic_mode) {
-        move_ctrl(hwnd, ID_MC,     x+(bw+g)*0, y+(bh+g)*row, bw, bh);
-        move_ctrl(hwnd, ID_MR,     x+(bw+g)*1, y+(bh+g)*row, bw, bh);
-        move_ctrl(hwnd, ID_MS,     x+(bw+g)*2, y+(bh+g)*row, bw, bh);
-        move_ctrl(hwnd, ID_MPLUS,  x+(bw+g)*3, y+(bh+g)*row, bw, bh);
-        move_ctrl(hwnd, ID_MMINUS, x+(bw+g)*4, y+(bh+g)*row, bw, bh);
-        row = 1;
-    }
+    /* Memory row */
+    move_ctrl(hwnd, ID_MC,     x+(bw+g)*0, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MR,     x+(bw+g)*1, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MS,     x+(bw+g)*2, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MPLUS,  x+(bw+g)*3, y+(bh+g)*row, bw, bh);
+    move_ctrl(hwnd, ID_MMINUS, x+(bw+g)*4, y+(bh+g)*row, bw, bh);
+    row = 1;
     move_ctrl(hwnd, ID_BACK,    x+(bw+g)*0, y+(bh+g)*row, bw, bh);
     move_ctrl(hwnd, ID_CE,      x+(bw+g)*1, y+(bh+g)*row, bw, bh);
     move_ctrl(hwnd, ID_CLR,     x+(bw+g)*2, y+(bh+g)*row, bw, bh);
@@ -273,9 +271,17 @@ void layout_panel(HWND hwnd, Layout *L) {
             break;
 
         case PANEL_DATE:
-            /* Delegated to calc_dateCalculation.c — both modes have
-               very different layouts and the module owns its controls. */
-            date_layout(hwnd, px, py, wide, g);
+            move_ctrl(hwnd, 353,          px,          py, wide,   lh); py += lh+g;
+            move_ctrl(hwnd, ID_DATE_TYPE, px,          py, wide,   ch); py += ch+g*2;
+            move_ctrl(hwnd, 354,          px,          py, wide/2, lh);
+            move_ctrl(hwnd, 355,          px+wide/2+g, py, wide/2, lh);
+            py += lh+g;
+            move_ctrl(hwnd, ID_DATE_FROM, px,          py, wide/2, eh);
+            move_ctrl(hwnd, ID_DATE_TO,   px+wide/2+g, py, wide/2, eh);
+            py += eh+g*2;
+            move_ctrl(hwnd, ID_DATE_CALC, px, py, wide,   bh2); py += bh2+g*2;
+            move_ctrl(hwnd, ID_DATE_RES1, px, py, wide,   lh*2); py += lh*2+g;
+            move_ctrl(hwnd, ID_DATE_RES2, px, py, wide,   lh);
             break;
 
         case PANEL_HISTORY:

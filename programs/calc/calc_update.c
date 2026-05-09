@@ -54,7 +54,7 @@ void compute_layout(HWND hwnd, Layout *L) {
     L->gap    = 6;
     L->disp_h = 60;
     if (g_panel != PANEL_NONE) {
-        L->panel_w = 380;  /* must match GM_PANEL_W in calc_window.c */
+        L->panel_w = 260;
         L->panel_x = L->win_w - L->panel_w;
         L->grid_w  = L->panel_x - (L->margin * 2);
     } else {
@@ -244,8 +244,10 @@ void ui_update_menu_check(HMENU hMenu) {
         g_panel == PANEL_DATE    ? MF_CHECKED : MF_UNCHECKED);
     CheckMenuItem(hMenu, ID_VIEW_DIGIT_GRP,
         digit_grouping           ? MF_CHECKED : MF_UNCHECKED);
+    /* "Basic" is checked when no side panel is open.  It's mutually
+       exclusive with Unit conversion / Date calculation / Worksheets. */
     CheckMenuItem(hMenu, ID_VIEW_BASIC,
-        g_basic_mode             ? MF_CHECKED : MF_UNCHECKED);
+        g_panel == PANEL_NONE    ? MF_CHECKED : MF_UNCHECKED);
 
     /* Worksheet sub-menu bullets */
     for (i = 0; i < 4; i++)

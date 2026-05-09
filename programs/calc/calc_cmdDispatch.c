@@ -8,7 +8,6 @@
 #include "calc_ui.h"
 #include "calc_panel.h"
 #include "calc_appMenu.h"
-#include "calc_dateCalculation.h"
 
 void on_command(HWND hwnd, int id) {
 
@@ -19,9 +18,17 @@ void on_command(HWND hwnd, int id) {
         return;
     }
     if (id == ID_VIEW_BASIC) {
-        g_basic_mode = !g_basic_mode;
-        /* basic mode only affects button row count, same mode */
-        ui_switch_mode(hwnd, g_mode);
+        /* "Basic" in the View menu means "no side panel".  It's the
+           Windows-convention complement to Unit conversion / Date
+           calculation / Worksheets — picking Basic closes whichever
+           is open; opening any of the others auto-unchecks Basic.
+           If we're already on Basic (PANEL_NONE), this is a no-op. */
+        if (g_panel != PANEL_NONE) {
+            g_panel = PANEL_NONE;
+            ui_rebuild_mode(hwnd);
+            apply_window_size(hwnd, g_mode, g_panel);
+            ui_update_menu_check(GetMenu(hwnd));
+        }
         return;
     }
 
@@ -60,16 +67,6 @@ void on_command(HWND hwnd, int id) {
            different "solve for" variable. */
     if (id == ID_WS_COMBO) {
         panel_ws_combo_changed(hwnd, g_worksheet);
-        return;
-    }
-
-    /* ── Date panel mode combo: switch between difference/adjust modes,
-           which have completely different controls.  After visibility
-           updates, re-run layout so the visible controls are positioned
-           correctly. */
-    if (id == ID_DATE_TYPE) {
-        date_mode_changed(hwnd);
-        ui_update_layout(hwnd);
         return;
     }
 

@@ -7,60 +7,15 @@
 #include "calc_ui.h"
 #include "calc_panel.h"
 #include "calc_about.h"
+#include "calc_hotkeys.h"
 
 extern int g_mode;
 extern int g_panel;
 
-static void on_keydown(HWND hwnd, WPARAM vk, BOOL ctrl, BOOL alt) {
-    if (alt) {
-        if (vk=='1') on_command(hwnd, ID_VIEW_STANDARD);
-        if (vk=='2') on_command(hwnd, ID_VIEW_SCIENTIFIC);
-        if (vk=='3') on_command(hwnd, ID_VIEW_PROGRAMMER);
-        if (vk=='4') on_command(hwnd, ID_VIEW_STATISTICS);
-        return;
-    }
-    if (ctrl) {
-        if (vk=='C') on_command(hwnd, 500);
-        if (vk=='V') on_command(hwnd, 501);
-        if (vk=='H') on_command(hwnd, ID_VIEW_HISTORY);
-        if (vk=='U') on_command(hwnd, ID_PANEL_UNIT);
-        if (vk=='E') on_command(hwnd, ID_PANEL_DATE);
-        return;
-    }
-    switch (vk) {
-        case VK_ESCAPE: on_command(hwnd, ID_CLR);  break;
-        case VK_DELETE: on_command(hwnd, ID_CE);   break;
-        case VK_BACK:   on_command(hwnd, ID_BACK); break;
-        case VK_RETURN: on_command(hwnd, ID_EQ);   break;
-        case VK_F9:     on_command(hwnd, ID_SIGN); break;
-        default: break;
-    }
-}
-
-static void on_char(HWND hwnd, WCHAR ch) {
-    if (ch >= L'0' && ch <= L'9') { on_command(hwnd, ID_0+(ch-L'0')); return; }
-    if (ch >= L'a' && ch <= L'f') ch = (WCHAR)(ch-L'a'+L'A');
-    switch (ch) {
-        case L'A': on_command(hwnd,ID_A);      break;
-        case L'B': on_command(hwnd,ID_B);      break;
-        case L'C': on_command(hwnd,ID_C_HEX);  break;
-        case L'D': on_command(hwnd,ID_D);      break;
-        case L'E': on_command(hwnd,ID_E_HEX);  break;
-        case L'F': on_command(hwnd,ID_F);      break;
-        case L'+': on_command(hwnd,ID_ADD);    break;
-        case L'-': on_command(hwnd,ID_SUB);    break;
-        case L'*': on_command(hwnd,ID_MUL);    break;
-        case L'/': on_command(hwnd,ID_DIV);    break;
-        case L'.': on_command(hwnd,ID_DOT);    break;
-        case L'=': on_command(hwnd,ID_EQ);     break;
-        case L'%': on_command(hwnd,ID_PERCENT);break;
-        case L'@': on_command(hwnd,ID_SQRT);   break;
-        case 27:   on_command(hwnd,ID_CLR);    break;
-        case 8:    on_command(hwnd,ID_BACK);   break;
-        case 13:   on_command(hwnd,ID_EQ);     break;
-        default:   break;
-    }
-}
+/* Keyboard handling moved to calc_hotkeys.c — Hotkeys_OnKey returns
+   TRUE if the key was handled, in which case WndProc skips
+   DefWindowProc and IsDialogMessage to avoid the Alt key opening
+   menus before our shortcuts run. */
 
 LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -100,15 +55,20 @@ LRESULT CALLBACK CalcWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 1;
         }
 
-        case WM_KEYDOWN: {
-            BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            BOOL alt  = (GetKeyState(VK_MENU)    & 0x8000) != 0;
-            on_keydown(hwnd, wp, ctrl, alt);
-            break;
-        }
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+            /* WM_SYSKEYDOWN fires for Alt-combinations.  Hotkeys_OnKey
+               handles both, returning TRUE if the key was a known
+               shortcut.  We still fall through to DefWindowProc when
+               unhandled so menu navigation (Alt to focus menu bar)
+               keeps working. */
+            if (Hotkeys_OnKey(hwnd, msg, wp, lp))
+                return 0;
+            return DefWindowProcW(hwnd, msg, wp, lp);
 
         case WM_CHAR:
-            on_char(hwnd, (WCHAR)wp);
+            if (Hotkeys_OnKey(hwnd, msg, wp, lp))
+                return 0;
             break;
 
         case WM_GETMINMAXINFO: {
@@ -149,7 +109,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     INITCOMMONCONTROLSEX icc;
 
     icc.dwSize = sizeof(icc);
-    icc.dwICC  = ICC_WIN95_CLASSES | ICC_DATE_CLASSES;
+    icc.dwICC  = ICC_WIN95_CLASSES;
     InitCommonControlsEx(&icc);
 
     ZeroMemory(&wc, sizeof(wc));
@@ -176,6 +136,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     UpdateWindow(hwnd);
 
     while (GetMessageW(&msg, NULL, 0, 0)) {
+        /* Hotkeys win first: IsDialogMessageW eats Ctrl+F4 (close child),
+           Tab navigation, and various F-keys.  Translating our shortcuts
+           here ensures the wndproc receives them.  We only consult
+           Hotkeys_OnKey for relevant messages addressed to our window. */
+        if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) &&
+            msg.hwnd != NULL &&
+            (msg.hwnd == hwnd || GetAncestor(msg.hwnd, GA_ROOT) == hwnd) &&
+            Hotkeys_OnKey(hwnd, msg.message, msg.wParam, msg.lParam)) {
+            continue;
+        }
         if (!IsDialogMessageW(hwnd, &msg)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
