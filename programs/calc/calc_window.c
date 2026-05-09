@@ -10,7 +10,7 @@
 #define GM_BTN_W    44
 #define GM_BTN_H    34
 #define GM_RADIO_W  (GM_BTN_W + GM_BTN_W / 2)
-#define GM_PANEL_W  360  /* Increased from 260 */
+#define GM_PANEL_W  260  /* Increased from 260 */
 
 void get_window_size(int client_w, int client_h, DWORD style,
                      int *ww, int *wh) {

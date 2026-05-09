@@ -172,7 +172,7 @@ void layout_programmer(HWND hwnd, Layout *L) {
 
     move_ctrl(hwnd, ID_PROG_OR,  gx+(bw+g)*0, y+(bh+g)*3, bw, bh);
     move_ctrl(hwnd, ID_PROG_XOR, gx+(bw+g)*1, y+(bh+g)*3, bw, bh);
-    move_ctrl(hwnd, ID_C_HEX,   gx+(bw+g)*2, y+(bh+g)*3, bw, bh);
+    move_ctrl(hwnd, ID_C_HEX,    gx+(bw+g)*2, y+(bh+g)*3, bw, bh);
     move_ctrl(hwnd, ID_4,        gx+(bw+g)*3, y+(bh+g)*3, bw, bh);
     move_ctrl(hwnd, ID_5,        gx+(bw+g)*4, y+(bh+g)*3, bw, bh);
     move_ctrl(hwnd, ID_6,        gx+(bw+g)*5, y+(bh+g)*3, bw, bh);
@@ -190,7 +190,7 @@ void layout_programmer(HWND hwnd, Layout *L) {
 
     move_ctrl(hwnd, ID_PROG_NOT, gx+(bw+g)*0, y+(bh+g)*5, bw, bh);
     move_ctrl(hwnd, ID_PROG_AND, gx+(bw+g)*1, y+(bh+g)*5, bw, bh);
-    move_ctrl(hwnd, ID_E_HEX,   gx+(bw+g)*2, y+(bh+g)*5, bw, bh);
+    move_ctrl(hwnd, ID_E_HEX,    gx+(bw+g)*2, y+(bh+g)*5, bw, bh);
     move_ctrl(hwnd, ID_0,        gx+(bw+g)*3, y+(bh+g)*5, bw, bh);
     move_ctrl(hwnd, ID_DOT,      gx+(bw+g)*4, y+(bh+g)*5, bw, bh);
     move_ctrl(hwnd, ID_ADD,      gx+(bw+g)*5, y+(bh+g)*5, bw, bh);
@@ -295,30 +295,29 @@ void layout_panel(HWND hwnd, Layout *L) {
 
         case PANEL_WORKSHEET: {
             HWND hc;
-            int lw, iw; /* Declare variables for asymmetric split */
+            int lw, iw;
             
-            move_ctrl(hwnd, 357,          px, py, wide, lh); py += lh+g;
-            move_ctrl(hwnd, ID_WS_COMBO,  px, py, wide, ch); py += ch+g*2;
+            move_ctrl(hwnd, 357,          px, py, wide, lh * 2); py += lh * 2 + g;
+            move_ctrl(hwnd, ID_WS_COMBO,  px, py, wide, ch); py += ch + g * 2;
             
-            /* The combo is now much wider, so the dropdown can just match 'wide' */
             hc = GetDlgItem(hwnd, ID_WS_COMBO);
             if (hc) SendMessageW(hc, CB_SETDROPPEDWIDTH, wide, 0);
             
-            /* 45% width for labels, 55% for inputs */
-            lw = (wide * 45) / 100;
-            iw = wide - lw;
+            /* Inputs only hold numbers; 75px is sufficient. 
+               This grants labels the maximum available horizontal space. */
+            iw = 75;
+            lw = wide - iw - g;
             
             for (i = 0; i < 6; i++) {
                 HWND hl = GetDlgItem(hwnd, lbl_ids[i]);
                 HWND hi = GetDlgItem(hwnd, inp_ids[i]);
                 if (hl && hi) {
-                    move_ctrl(hwnd, lbl_ids[i], px,      py, lw, lh);
-                    move_ctrl(hwnd, inp_ids[i], px + lw, py, iw, lh);
+                    move_ctrl(hwnd, lbl_ids[i], px,          py, lw, lh);
+                    move_ctrl(hwnd, inp_ids[i], px + lw + g, py, iw, lh);
                     py += lh + g;
                 }
             }
             
-            /* Move calculate button & result label below the inputs */
             move_ctrl(hwnd, ID_WS_CALC, px, py, wide, lh + 6); py += lh + 6 + g;
             move_ctrl(hwnd, ID_WS_RES,  px, py, wide, lh * 2);
             break;
