@@ -3,18 +3,18 @@ IMPORTS       = cards user32 gdi32 advapi32 comctl32
 EXTRADLLFLAGS = -mwindows -municode
 
 # Link against the cards.dll headers
-EXTRAINCL = -I$(top_srcdir)/dlls/cards
+EXTRAINCL = -I$(top_srcdir)/dlls/cards -I$(srcdir)/include
 
 SOURCES = \
-    solitaire.c \
-    sol_cards.c \
-    sol_game.c \
-    sol_layout.c \
-    sol_input.c \
-    sol_draw.c \
-    sol_endgame.c \
-    sol_timer.c \
-    sol_res.c \
-    sol_score.c \
-    sol_about.c \
+    src/solitaire.c \
+    src/sol_cards.c \
+    src/sol_game.c \
+    src/sol_layout.c \
+    src/sol_input.c \
+    src/sol_draw.c \
+    src/sol_endgame.c \
+    src/sol_timer.c \
+    src/sol_res.c \
+    src/sol_score.c \
+    src/sol_about.c \
     solitaire.rc

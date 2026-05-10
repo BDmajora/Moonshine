@@ -1,30 +1,31 @@
 MODULE        = calc.exe
 IMPORTS       = user32 gdi32 advapi32 comdlg32 shell32 comctl32 uxtheme
 EXTRADLLFLAGS = -mwindows -municode
+EXTRAINCL     = -I$(srcdir)/include
 
 SOURCES = \
-    calc_cmdSci.c \
-    calc_cmdDispatch.c \
-    calc_wndproc.c \
-    calc_appMenu.c \
-    calc_about.c \
-    calc_state.c \
-    calc_memory.c \
-    calc_ops.c \
-    calc_input.c \
-    calc_widgets.c \
-    calc_create.c \
-    calc_layout.c \
-    calc_update.c \
-    calc_panel.c \
-    calc_window.c \
-    calc_mortgage.c \
-    calc_vehicleLease.c \
-    calc_fuelEconomy.c \
-    calc_dateCalculation.c \
-    calc_hotkeys.c \
-    calc_modeProgrammer.c \
-    calc_modeScientific.c \
-    calc_modeStandard.c \
-    calc_modeStatistics.c \
+    src/calc_cmdSci.c \
+    src/calc_cmdDispatch.c \
+    src/calc_wndproc.c \
+    src/calc_appMenu.c \
+    src/calc_about.c \
+    src/calc_state.c \
+    src/calc_memory.c \
+    src/calc_ops.c \
+    src/calc_input.c \
+    src/calc_widgets.c \
+    src/calc_create.c \
+    src/calc_layout.c \
+    src/calc_update.c \
+    src/calc_panel.c \
+    src/calc_window.c \
+    src/calc_mortgage.c \
+    src/calc_vehicleLease.c \
+    src/calc_fuelEconomy.c \
+    src/calc_dateCalculation.c \
+    src/calc_hotkeys.c \
+    src/calc_modeProgrammer.c \
+    src/calc_modeScientific.c \
+    src/calc_modeStandard.c \
+    src/calc_modeStatistics.c \
     calc.rc
