@@ -9,6 +9,10 @@
 #include "calc_defs.h"
 #include "calc_logic.h"
 #include "calc_panel.h"
+#include "calc_modeStandard.h"
+#include "calc_modeScientific.h"
+#include "calc_modeProgrammer.h"
+#include "calc_modeStatistics.h"
 
 extern void ui_destroy_children(void);
 
@@ -65,11 +69,13 @@ void compute_layout(HWND hwnd, Layout *L) {
     L->disp_x = L->margin;
     L->disp_y = L->margin;
     L->disp_w = L->grid_w;
+    /* Each mode module owns its grid dimensions and any header band
+       (bit display, listbox, etc.) reserved above the button grid. */
     switch (g_mode) {
-        case MODE_SCIENTIFIC: L->cols = 10; L->rows = 7; header_h = 30;  break;
-        case MODE_PROGRAMMER: L->cols = 9;  L->rows = 7; header_h = 50;  break;
-        case MODE_STATISTICS: L->cols = 5;  L->rows = 7; header_h = 100; break;
-        default:              L->cols = 5;  L->rows = 6; header_h = 0;   break;
+        case MODE_SCIENTIFIC: mode_sci_get_grid(&L->cols, &L->rows, &header_h);  break;
+        case MODE_PROGRAMMER: mode_prog_get_grid(&L->cols, &L->rows, &header_h); break;
+        case MODE_STATISTICS: mode_stat_get_grid(&L->cols, &L->rows, &header_h); break;
+        default:              mode_std_get_grid(&L->cols, &L->rows, &header_h);  break;
     }
     L->grid_y = L->disp_y + L->disp_h + L->margin + header_h;
     L->grid_h = L->win_h - L->grid_y - L->margin;

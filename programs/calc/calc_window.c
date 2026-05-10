@@ -3,6 +3,10 @@
    ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include "calc.h"
+#include "calc_modeStandard.h"
+#include "calc_modeScientific.h"
+#include "calc_modeProgrammer.h"
+#include "calc_modeStatistics.h"
 
 #define GM_MARGIN   12
 #define GM_GAP       6
@@ -31,27 +35,27 @@ void get_window_size(int client_w, int client_h, DWORD style,
 void get_required_client_size(int mode, int panel, int *w, int *h) {
     int btn_cols, btn_rows, header_h;
     int grid_w, grid_h;
+    int sidebar_w = 0;
 
+    /* Each mode module reports its own grid + header. Programmer
+       mode also has a radio sidebar to the left of the button grid. */
     switch (mode) {
         case MODE_SCIENTIFIC:
-            btn_cols = 10; btn_rows = 7; header_h = 30;
-            grid_w = btn_cols * GM_BTN_W + (btn_cols - 1) * GM_GAP;
+            mode_sci_get_grid(&btn_cols, &btn_rows, &header_h);
             break;
         case MODE_PROGRAMMER:
-            btn_cols = 8;  btn_rows = 7; header_h = 50;
-            grid_w = GM_RADIO_W + GM_GAP
-                   + btn_cols * GM_BTN_W + (btn_cols - 1) * GM_GAP;
+            mode_prog_get_grid(&btn_cols, &btn_rows, &header_h);
+            sidebar_w = 60 + GM_GAP * 2;  /* radio sidebar */
             break;
         case MODE_STATISTICS:
-            btn_cols = 5;  btn_rows = 7; header_h = 100;
-            grid_w = btn_cols * GM_BTN_W + (btn_cols - 1) * GM_GAP;
+            mode_stat_get_grid(&btn_cols, &btn_rows, &header_h);
             break;
         default:
-            btn_cols = 5;  btn_rows = 6; header_h = 0;
-            grid_w = btn_cols * GM_BTN_W + (btn_cols - 1) * GM_GAP;
+            mode_std_get_grid(&btn_cols, &btn_rows, &header_h);
             break;
     }
 
+    grid_w = btn_cols * GM_BTN_W + (btn_cols - 1) * GM_GAP + sidebar_w;
     grid_h = btn_rows * GM_BTN_H + (btn_rows - 1) * GM_GAP;
 
     *w = GM_MARGIN * 2 + grid_w;

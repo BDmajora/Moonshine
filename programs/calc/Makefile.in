@@ -23,4 +23,8 @@ SOURCES = \
     calc_fuelEconomy.c \
     calc_dateCalculation.c \
     calc_hotkeys.c \
+    calc_modeProgrammer.c \
+    calc_modeScientific.c \
+    calc_modeStandard.c \
+    calc_modeStatistics.c \
     calc.rc
