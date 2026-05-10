@@ -1,22 +1,30 @@
 /* ────────────────────────────────────────────────────────────────────
    calc_hotkeys.c — keyboard shortcut dispatcher.
 
-   Three sections:
-     1. Modifier helpers (Ctrl/Alt/Shift state checks)
-     2. Hotkey table (vk + modifier → command id)
-     3. Dispatcher functions (WM_KEYDOWN/WM_SYSKEYDOWN, WM_CHAR)
+   Two complementary mechanisms:
 
-   The dispatcher returns TRUE when a key is handled, mirroring
-   sol_input.c's Input_OnKeyboard signature.  WndProc skips
-   DefWindowProc and IsDialogMessage in that case to prevent menus
-   from intercepting Alt-combinations.
+   1. Accelerator table (HACCEL) — the canonical Windows way.
+      TranslateAcceleratorW in the message loop converts F-keys and
+      Ctrl/Alt combinations directly into WM_COMMAND messages with
+      the correct id, bypassing IsDialogMessageW interception.  This
+      is the primary mechanism.
+
+   2. Manual WM_KEYDOWN/WM_CHAR fallback — for character keys
+      (digits, operators, hex letters) and editing keys (Esc/Del/
+      Backspace/Enter) that don't translate through accelerators.
+
+   ── Note on Ctrl+F4 ──────────────────────────────────────────────
+   On Linux/Wine, KWin and many other window managers reserve Ctrl+F4
+   system-wide (workspace/tab navigation), so the keypress never
+   reaches our process.  Both Ctrl+F4 (Windows native) and Ctrl+B
+   (Linux-friendly alias) are bound to ID_VIEW_BASIC; whichever the
+   environment lets through will work.
    ──────────────────────────────────────────────────────────────────── */
 #include <windows.h>
 #include <wchar.h>
 #include "calc.h"
 #include "calc_hotkeys.h"
 
-/* Modifier flags packed into a single int for the lookup table. */
 #define HK_NONE  0x00
 #define HK_CTRL  0x01
 #define HK_ALT   0x02
@@ -33,13 +41,13 @@ static int current_mods(void) {
 /* ── Hotkey table ────────────────────────────────────────────────── */
 
 typedef struct {
-    int  vk;        /* virtual key */
-    int  mods;      /* HK_* mask  */
-    int  cmd;       /* command id to dispatch via on_command */
+    int  vk;
+    int  mods;
+    int  cmd;
 } Hotkey;
 
 static const Hotkey s_hotkeys[] = {
-    /* Mode switching — Alt+1..4 */
+    /* Mode switching */
     { '1',        HK_ALT,  ID_VIEW_STANDARD   },
     { '2',        HK_ALT,  ID_VIEW_SCIENTIFIC },
     { '3',        HK_ALT,  ID_VIEW_PROGRAMMER },
@@ -49,9 +57,13 @@ static const Hotkey s_hotkeys[] = {
     { 'H',        HK_CTRL, ID_VIEW_HISTORY    },
     { 'U',        HK_CTRL, ID_PANEL_UNIT      },
     { 'E',        HK_CTRL, ID_PANEL_DATE      },
-    { VK_F4,      HK_CTRL, ID_VIEW_BASIC      },
 
-    /* Memory shortcuts (standard Windows Calculator) */
+    /* Basic — DUAL BINDING: Ctrl+F4 (Windows) and Ctrl+B (works
+       everywhere, since Ctrl+F4 is grabbed by KWin / GNOME / etc.) */
+    { VK_F4,      HK_CTRL, ID_VIEW_BASIC      },
+    { 'B',        HK_CTRL, ID_VIEW_BASIC      },
+
+    /* Memory */
     { 'L',        HK_CTRL, ID_MC              },
     { 'R',        HK_CTRL, ID_MR              },
     { 'M',        HK_CTRL, ID_MS              },
@@ -59,20 +71,18 @@ static const Hotkey s_hotkeys[] = {
     { 'Q',        HK_CTRL, ID_MMINUS          },
 
     /* Edit */
-    { 'C',        HK_CTRL, 500                },  /* Copy  */
-    { 'V',        HK_CTRL, 501                },  /* Paste */
+    { 'C',        HK_CTRL, 500                },
+    { 'V',        HK_CTRL, 501                },
 
     /* Display toggles */
-    { VK_F3,      HK_NONE, ID_SCI_FE          },  /* F-E toggle */
-    { VK_F9,      HK_NONE, ID_SIGN            },  /* ± */
+    { VK_F3,      HK_NONE, ID_SCI_FE          },
+    { VK_F9,      HK_NONE, ID_SIGN            },
 
-    /* Programmer base radios */
+    /* Programmer base */
     { VK_F5,      HK_NONE, ID_RADIO_HEX       },
     { VK_F6,      HK_NONE, ID_RADIO_DEC       },
     { VK_F7,      HK_NONE, ID_RADIO_OCT       },
     { VK_F8,      HK_NONE, ID_RADIO_BIN       },
-
-    /* Programmer word radios */
     { VK_F12,     HK_NONE, ID_RADIO_QWORD     },
 
     /* Help */
@@ -87,13 +97,37 @@ static const Hotkey s_hotkeys[] = {
 
 #define HOTKEY_COUNT (sizeof(s_hotkeys) / sizeof(s_hotkeys[0]))
 
-/* ── Key-down dispatcher ─────────────────────────────────────────── */
+/* ── Accelerator table ───────────────────────────────────────────── */
+
+static HACCEL s_haccel = NULL;
+
+HACCEL Hotkeys_GetAccelTable(void) {
+    ACCEL accels[HOTKEY_COUNT];
+    size_t i;
+    int n = 0;
+
+    if (s_haccel) return s_haccel;
+
+    for (i = 0; i < HOTKEY_COUNT; i++) {
+        BYTE flags = FVIRTKEY;
+        if (s_hotkeys[i].mods & HK_CTRL)  flags |= FCONTROL;
+        if (s_hotkeys[i].mods & HK_ALT)   flags |= FALT;
+        if (s_hotkeys[i].mods & HK_SHIFT) flags |= FSHIFT;
+        accels[n].fVirt = flags;
+        accels[n].key   = (WORD)s_hotkeys[i].vk;
+        accels[n].cmd   = (WORD)s_hotkeys[i].cmd;
+        n++;
+    }
+    s_haccel = CreateAcceleratorTableW(accels, n);
+    return s_haccel;
+}
+
+/* ── Manual fallback (WM_KEYDOWN/WM_SYSKEYDOWN) ─────────────────── */
 
 static BOOL handle_keydown(HWND hwnd, WPARAM vk) {
     int mods = current_mods();
     size_t i;
 
-    /* Normalize lowercase ASCII to upper to match table entries. */
     if (vk >= 'a' && vk <= 'z') vk = (WPARAM)(vk - 'a' + 'A');
 
     for (i = 0; i < HOTKEY_COUNT; i++) {
@@ -105,12 +139,9 @@ static BOOL handle_keydown(HWND hwnd, WPARAM vk) {
     return FALSE;
 }
 
-/* ── WM_CHAR dispatcher (digits, hex letters, operators) ─────────── */
+/* ── WM_CHAR (digits, operators, hex letters) ────────────────────── */
 
 static BOOL handle_char(HWND hwnd, WCHAR ch) {
-    /* Ignore characters when modifier keys are held — those are
-       hotkeys handled by handle_keydown.  Otherwise Ctrl+L would
-       both clear memory AND insert 'l'. */
     if (current_mods() & (HK_CTRL | HK_ALT)) return FALSE;
 
     if (ch >= L'0' && ch <= L'9') {

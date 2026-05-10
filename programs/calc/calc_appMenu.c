@@ -22,7 +22,7 @@ HMENU create_menu(void) {
     AppendMenuW(hView, MF_STRING, ID_VIEW_HISTORY,     L"History\tCtrl+H");
     AppendMenuW(hView, MF_STRING, ID_VIEW_DIGIT_GRP,   L"Digit grouping");
     AppendMenuW(hView, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hView, MF_STRING, ID_VIEW_BASIC,       L"Basic\tCtrl+F4");
+    AppendMenuW(hView, MF_STRING, ID_VIEW_BASIC,       L"Basic\tCtrl+B");
     AppendMenuW(hView, MF_STRING, ID_PANEL_UNIT,       L"Unit conversion\tCtrl+U");
     AppendMenuW(hView, MF_STRING, ID_PANEL_DATE,       L"Date calculation\tCtrl+E");
 

@@ -122,6 +122,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     wc.style         = CS_HREDRAW | CS_VREDRAW;
     RegisterClassW(&wc);
 
+    HACCEL hAccel;
+
     hMenu = create_menu();
     get_required_client_size(g_mode, g_panel, &cw, &ch);
     get_window_size(cw, ch, dwStyle, &ww, &wh);
@@ -135,11 +137,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrev,
     apply_window_size(hwnd, g_mode, g_panel);
     UpdateWindow(hwnd);
 
+    /* Canonical hotkey path: TranslateAcceleratorW converts each
+       matching keystroke into a WM_COMMAND addressed to hwnd, so the
+       wndproc receives it via the normal command dispatch path. This
+       happens BEFORE IsDialogMessageW so Ctrl+F4 (which IsDialog
+       interprets as MDI close) still reaches us. */
+    hAccel = Hotkeys_GetAccelTable();
+
     while (GetMessageW(&msg, NULL, 0, 0)) {
-        /* Hotkeys win first: IsDialogMessageW eats Ctrl+F4 (close child),
-           Tab navigation, and various F-keys.  Translating our shortcuts
-           here ensures the wndproc receives them.  We only consult
-           Hotkeys_OnKey for relevant messages addressed to our window. */
+        if (hAccel && TranslateAcceleratorW(hwnd, hAccel, &msg))
+            continue;
+
+        /* Manual fallback for keystrokes the accelerator table missed
+           (most often editing keys consumed by IsDialogMessage). */
         if ((msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) &&
             msg.hwnd != NULL &&
             (msg.hwnd == hwnd || GetAncestor(msg.hwnd, GA_ROOT) == hwnd) &&
