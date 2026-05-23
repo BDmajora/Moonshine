@@ -1155,6 +1155,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         break;
 
     case WM_CLOSE:
+        /* When running as the desktop shell (enable_taskbar), the taskbar
+         * must never hide — SW_HIDE unmaps the Wayland surface and the
+         * compositor sees the taskbar vanish.  Real Windows never closes
+         * Shell_TrayWnd during a session, so swallow the message. */
+        if (enable_taskbar)
+            return 0;
         /* don't destroy the tray window, just hide it */
         ShowWindow( hwnd, SW_HIDE );
         hide_balloon( balloon_icon );
