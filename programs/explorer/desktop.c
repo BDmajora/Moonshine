@@ -806,7 +806,13 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         break;
 
     case WM_CLOSE:
-        PostQuitMessage(0);
+        /* Don't exit.  In an embedded compositor (e.g. YetiOS frostedglass)
+         * the desktop must persist for the entire session.  Without this,
+         * closing a control-panel applet can propagate WM_CLOSE to the
+         * desktop window, which kills explorer and takes the taskbar with
+         * it.  The session is terminated by the compositor
+         * (Ctrl+Alt+Backspace) or by the Start → Exit menu item, which
+         * goes through WM_SYSCOMMAND/SC_CLOSE → ExitWindows() above. */
         return 0;
 
     case WM_SETCURSOR:
