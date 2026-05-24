@@ -61,9 +61,9 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
          * keep covering the full desktop.  The compositor will re-pin us
          * to the bottom on the resulting commit.
          */
-        int sw = GetSystemMetrics(SM_CXSCREEN);
-        int sh = GetSystemMetrics(SM_CYSCREEN);
-        SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, sw, sh,
+        int dw = GetSystemMetrics(SM_CXSCREEN);
+        int dh = GetSystemMetrics(SM_CYSCREEN);
+        SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, dw, dh,
             SWP_NOACTIVATE | SWP_NOZORDER);
         InvalidateRect(hwnd, NULL, TRUE);
         return 0;
@@ -83,6 +83,11 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     LPWSTR lpCmdLine, int nCmdShow) {
+    WNDCLASSEXW wc = {0};
+    int sw, sh;
+    HWND hwnd;
+    MSG msg;
+
     (void)hPrevInstance;
     (void)lpCmdLine;
     (void)nCmdShow;
@@ -90,7 +95,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     g_bg_brush = CreateSolidBrush(
         RGB(DESKTOP_BG_R, DESKTOP_BG_G, DESKTOP_BG_B));
 
-    WNDCLASSEXW wc = {0};
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = desktop_wndproc;
     wc.hInstance     = hInstance;
@@ -100,7 +104,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
      * cursor for this window, so the compositor shows the Wine arrow
      * over the wallpaper instead of the bare Linux cursor.
      */
-    wc.hCursor       = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     wc.hbrBackground = NULL;   /* we paint everything ourselves */
     wc.lpszClassName = L"" DESKTOP_WND_CLASS;
 
@@ -108,10 +112,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
     }
 
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
+    sw = GetSystemMetrics(SM_CXSCREEN);
+    sh = GetSystemMetrics(SM_CYSCREEN);
 
-    HWND hwnd = CreateWindowExW(
+    hwnd = CreateWindowExW(
         0,                              /* no extended styles */
         L"" DESKTOP_WND_CLASS,
         L"" DESKTOP_WND_TITLE,
@@ -129,7 +133,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
-    MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
