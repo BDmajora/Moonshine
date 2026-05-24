@@ -1,0 +1,8 @@
+MODULE        = desktop.exe
+IMPORTS       = user32 gdi32 advapi32
+EXTRADLLFLAGS = -mwindows -municode
+EXTRAINCL     = -I$(srcdir)/include
+
+SOURCES = \
+    src/desktop.c \
+    desktop.rc
