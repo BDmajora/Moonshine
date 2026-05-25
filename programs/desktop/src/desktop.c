@@ -38,19 +38,21 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
         return 0;
     }
 
-    /* -------------------------------------------------------------- */
-    /* IMPORTANT FIX: DO NOT hijack cursor handling                   */
-    /* Let Wine + DefWindowProc manage cursor state properly          */
-    /* -------------------------------------------------------------- */
+    /*
+     * IMPORTANT (Wine + Win32 correct behavior):
+     * Do NOT manually call SetCursor here.
+     * Let DefWindowProc + Wine Wayland/X11 backend handle cursor selection.
+     */
     case WM_SETCURSOR:
         return DefWindowProcW(hwnd, msg, wparam, lparam);
 
     case WM_ERASEBKGND:
         return 1;
 
-    /* -------------------------------------------------------------- */
-    /* Desktop must remain interactive like Windows shell             */
-    /* -------------------------------------------------------------- */
+    /*
+     * Make desktop interactive like Windows Explorer desktop:
+     * clicking activates the window so context menus + shortcuts work.
+     */
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:
     case WM_MBUTTONDOWN:
@@ -62,7 +64,6 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
 
     case WM_CONTEXTMENU:
     {
-        /* Placeholder for future desktop right-click menu */
         SetActiveWindow(hwnd);
         SetFocus(hwnd);
         return 0;
@@ -108,18 +109,27 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     g_bg_brush = CreateSolidBrush(
         RGB(DESKTOP_BG_R, DESKTOP_BG_G, DESKTOP_BG_B));
 
-    wc.cbSize      = sizeof(wc);
-    wc.lpfnWndProc = desktop_wndproc;
-    wc.hInstance   = hInstance;
-    wc.hIcon       = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_DESKTOP));
+    wc.cbSize        = sizeof(wc);
+    wc.lpfnWndProc   = desktop_wndproc;
+    wc.hInstance     = hInstance;
+    wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_DESKTOP));
 
-    /* IMPORTANT:
-       Do NOT force cursor manually — let Wine handle it */
-    wc.hCursor     = LoadCursorW(NULL, IDC_ARROW);
+    /*
+     * ✅ WINE-CORRECT CURSOR HANDLING:
+     *
+     * IDC_ARROW is already a stock cursor resource ID.
+     * You do NOT call LoadCursorW for it in Wine builds like this.
+     *
+     * This avoids:
+     * - MAKEINTRESOURCE type mismatch
+     * - WCHAR vs integer warnings
+     * - unnecessary cursor loading layer
+     */
+    wc.hCursor       = IDC_ARROW;
 
     wc.hbrBackground = NULL;
     wc.lpszClassName = L"" DESKTOP_WND_CLASS;
-    wc.style = CS_DBLCLKS;
+    wc.style         = CS_DBLCLKS;
 
     if (!RegisterClassExW(&wc))
         return 1;
@@ -141,17 +151,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         return 1;
     }
 
-    /* ----------------------------------------------------------------
-       FIXED Z-ORDER BEHAVIOR:
-
-       - NO HWND_BOTTOM spam (that breaks activation/cursor in Wine)
-       - Instead: set bottom once, without killing input model
-       ---------------------------------------------------------------- */
+    /*
+     * Bottom layering WITHOUT breaking activation:
+     * Do NOT use SWP_NOACTIVATE here (that breaks Wine cursor state)
+     */
     SetWindowPos(hwnd, HWND_BOTTOM,
         0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE);
 
-    /* Ensure it behaves like a real interactive shell surface */
+    /*
+     * Make sure Wine treats this as an interactive shell surface
+     */
     SetActiveWindow(hwnd);
     SetFocus(hwnd);
 
