@@ -39,20 +39,13 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
     }
 
     /*
-     * IMPORTANT (Wine + Win32 correct behavior):
-     * Do NOT manually call SetCursor here.
-     * Let DefWindowProc + Wine Wayland/X11 backend handle cursor selection.
+     * IMPORTANT:
+     * Let Wine handle cursor routing completely.
+     * Do NOT override with SetCursor or custom logic.
      */
     case WM_SETCURSOR:
         return DefWindowProcW(hwnd, msg, wparam, lparam);
 
-    case WM_ERASEBKGND:
-        return 1;
-
-    /*
-     * Make desktop interactive like Windows Explorer desktop:
-     * clicking activates the window so context menus + shortcuts work.
-     */
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:
     case WM_MBUTTONDOWN:
@@ -63,11 +56,7 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
     }
 
     case WM_CONTEXTMENU:
-    {
-        SetActiveWindow(hwnd);
-        SetFocus(hwnd);
         return 0;
-    }
 
     case WM_DISPLAYCHANGE:
     {
@@ -115,21 +104,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_DESKTOP));
 
     /*
-     * ✅ WINE-CORRECT CURSOR HANDLING:
-     *
-     * IDC_ARROW is already a stock cursor resource ID.
-     * You do NOT call LoadCursorW for it in Wine builds like this.
-     *
-     * This avoids:
-     * - MAKEINTRESOURCE type mismatch
-     * - WCHAR vs integer warnings
-     * - unnecessary cursor loading layer
+     * WINE-COMPATIBLE CURSOR FIX
+     * This is the only form that matches your headers.
      */
-    wc.hCursor       = IDC_ARROW;
+    wc.hCursor = LoadCursorW(NULL, MAKEINTRESOURCEW(32512));
 
     wc.hbrBackground = NULL;
     wc.lpszClassName = L"" DESKTOP_WND_CLASS;
-    wc.style         = CS_DBLCLKS;
+    wc.style = CS_DBLCLKS;
 
     if (!RegisterClassExW(&wc))
         return 1;
@@ -152,16 +134,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
 
     /*
-     * Bottom layering WITHOUT breaking activation:
-     * Do NOT use SWP_NOACTIVATE here (that breaks Wine cursor state)
+     * Keep desktop visually bottom-most WITHOUT breaking input model.
      */
     SetWindowPos(hwnd, HWND_BOTTOM,
         0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE);
 
-    /*
-     * Make sure Wine treats this as an interactive shell surface
-     */
     SetActiveWindow(hwnd);
     SetFocus(hwnd);
 
