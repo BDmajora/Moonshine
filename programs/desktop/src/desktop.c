@@ -47,6 +47,21 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
         return 0;
     }
 
+    case WM_SETCURSOR:
+        /*
+         * Explicitly handle WM_SETCURSOR so Wine's Wayland driver
+         * issues wl_pointer_set_cursor for this window.  DefWindowProc
+         * normally does this via the class cursor, but for a WS_POPUP
+         * at HWND_BOTTOM Wine's internal hit-test may not route
+         * WM_SETCURSOR here reliably.  Forcing SetCursor ourselves
+         * guarantees Wine pushes its cursor to the compositor.
+         */
+        if (LOWORD(lparam) == HTCLIENT) {
+            SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
+            return TRUE;
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+
     case WM_ERASEBKGND:
         /*
          * We paint the whole client area in WM_PAINT, so claim the
