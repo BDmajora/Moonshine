@@ -5,19 +5,6 @@
  * the wallpaper.  The frostedglass compositor detects this window by its
  * class/title and lowers it to the bottom of the scene graph, beneath the
  * taskbar and all application windows.
- *
- * Why this exists:
- *   - frostedglass used to paint a solid blue rect for the desktop, but
- *     that rect is a compositor surface, not a Wine surface.  Over it,
- *     Wine never gets pointer focus, so Wine never sets a cursor, and the
- *     bare wlroots cursor shows through.
- *   - With a real Wine window covering the whole screen, the pointer is
- *     ALWAYS over a Wine surface, so Wine always issues its own
- *     wl_pointer_set_cursor.  The Linux cursor is never visible.
- *
- * For now the wallpaper is a hard-coded light purple solid fill.  A later
- * revision will read the color (and a bitmap path) from the registry so
- * the theme settings UI can change it.
  */
 
 #include <windows.h>
@@ -29,6 +16,19 @@
 /* ------------------------------------------------------------------ */
 
 static HBRUSH g_bg_brush = NULL;
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Returns the desired cursor for the desktop. 
+ * Using this helper ensures that whenever we request a cursor, 
+ * it is explicitly handled and ready for Wine's Wayland driver.
+ */
+static HCURSOR get_cursor(void) {
+    return LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+}
 
 /* ------------------------------------------------------------------ */
 /* Window procedure                                                   */
@@ -49,15 +49,13 @@ LRESULT CALLBACK desktop_wndproc(HWND hwnd, UINT msg,
 
     case WM_SETCURSOR:
         /*
-         * Explicitly handle WM_SETCURSOR so Wine's Wayland driver
-         * issues wl_pointer_set_cursor for this window.  DefWindowProc
-         * normally does this via the class cursor, but for a WS_POPUP
-         * at HWND_BOTTOM Wine's internal hit-test may not route
-         * WM_SETCURSOR here reliably.  Forcing SetCursor ourselves
-         * guarantees Wine pushes its cursor to the compositor.
+         * Explicitly handle WM_SETCURSOR using our helper. 
+         * By calling SetCursor and returning TRUE, we signal to Wine that 
+         * the cursor is managed, which forces Wine to push the arrow 
+         * cursor to the Wayland compositor.
          */
         if (LOWORD(lparam) == HTCLIENT) {
-            SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
+            SetCursor(get_cursor());
             return TRUE;
         }
         return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -114,12 +112,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     wc.lpfnWndProc   = desktop_wndproc;
     wc.hInstance     = hInstance;
     wc.hIcon         = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_DESKTOP));
-    /*
-     * Class cursor matters: with a class cursor set, Wine reports a
-     * cursor for this window, so the compositor shows the Wine arrow
-     * over the wallpaper instead of the bare Linux cursor.
+    
+    /* * Using get_cursor() here for the class default as well ensures
+     * consistency from the moment the window is created.
      */
-    wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
+    wc.hCursor       = get_cursor();
     wc.hbrBackground = NULL;   /* we paint everything ourselves */
     wc.lpszClassName = L"" DESKTOP_WND_CLASS;
 
