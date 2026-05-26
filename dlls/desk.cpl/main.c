@@ -1,20 +1,21 @@
 /*
+ * desk.cpl — Display Settings control-panel applet.
+ *
+ * Mirrors the Windows 7/8 "Screen Resolution" panel layout:
+ *   Main page  — monitor preview, Display / Resolution / Orientation combos
+ *   Advanced   — tabbed property sheet with Adapter + Monitor pages
+ *                (refresh-rate combo, VRR checkbox on the Monitor page)
+ *
+ * All hardware interaction goes through wlr-randr via the companion
+ * Unix library (unixlib.c / desk.so).
+ *
  * Copyright 2024 Rémi Bernon for CodeWeavers
+ * Copyright 2025 YetiOS contributors
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
 #include "desk_private.h"
@@ -24,549 +25,867 @@
 #include "ole2.h"
 
 #include "wine/debug.h"
-#include "wine/list.h"
+#include "wine/unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(deskcpl);
 
 static HMODULE module;
 
-struct device_entry
-{
-    struct list entry;
-    DISPLAY_DEVICEW adapter;
-    DEVMODEW current; /* device mode to be applied */
-    DEVMODEW pending; /* pending mode when moving */
+/* ================================================================== */
+/* Unix-call helpers                                                  */
+/* ================================================================== */
 
-    RECT draw_rect;
-    float draw_scale;
-    BOOL mouse_over;
-    POINT move_point;
+#define UNIX_CALL(code, params) \
+    __wine_unix_call(__wine_unixlib_handle, (code), (params))
+
+static BOOL unix_inited;
+
+static BOOL ensure_unix(void)
+{
+    if (!unix_inited)
+    {
+        if (__wine_init_unix_call())
+        {
+            ERR("Failed to initialise desk.cpl unix library.\n");
+            return FALSE;
+        }
+        unix_inited = TRUE;
+    }
+    return TRUE;
+}
+
+/* ================================================================== */
+/* Global state — cached wlr-randr data + user selections             */
+/* ================================================================== */
+
+static struct wlr_enumerate_params wlr_data;
+static int            sel_output;          /* index or -1               */
+static unsigned int   staged_w, staged_h;  /* resolution to apply       */
+static unsigned int   staged_transform;    /* orientation to apply       */
+
+static const struct wlr_output_info *get_output(void)
+{
+    if (sel_output < 0 || sel_output >= (int)wlr_data.num_outputs)
+        return NULL;
+    return &wlr_data.outputs[sel_output];
+}
+
+static BOOL enumerate_outputs(void)
+{
+    if (!ensure_unix()) return FALSE;
+    return UNIX_CALL(unix_wlr_enumerate, &wlr_data) == 0;
+}
+
+/* ================================================================== */
+/* Orientation helpers                                                */
+/* ================================================================== */
+
+static const WCHAR *orientation_labels[] =
+{
+    L"Landscape",
+    L"Portrait",
+    L"Landscape (flipped)",
+    L"Portrait (flipped)",
 };
-static struct list devices = LIST_INIT( devices );
-static struct device_entry *selected;
-static BOOL dragging;
 
-static void clear_devices( HWND hwnd )
+/* ================================================================== */
+/* Main dialog — combo population                                     */
+/* ================================================================== */
+
+static void populate_output_combo(HWND hwnd)
 {
-    struct device_entry *entry, *next;
+    HWND combo = GetDlgItem(hwnd, IDC_OUTPUT_COMBO);
+    unsigned int i;
+    int first_enabled = -1;
 
-    selected = NULL;
-    dragging = FALSE;
-    SendDlgItemMessageW( hwnd, IDC_DISPLAY_SETTINGS_LIST, CB_RESETCONTENT, 0, 0 );
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    sel_output = -1;
 
-    LIST_FOR_EACH_ENTRY_SAFE( entry, next, &devices, struct device_entry, entry )
+    for (i = 0; i < wlr_data.num_outputs; i++)
     {
-        list_remove( &entry->entry );
-        free( entry );
-    }
-}
+        const struct wlr_output_info *out = &wlr_data.outputs[i];
+        WCHAR buf[384], wname[64], wdesc[256];
 
-static void refresh_device_list( HWND hwnd )
-{
-    DISPLAY_DEVICEW adapter = {.cb = sizeof(adapter)};
-    struct device_entry *entry;
-    UINT i;
+        MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
 
-    clear_devices( hwnd );
-
-    for (i = 0; EnumDisplayDevicesW( NULL, i, &adapter, 0 ); ++i)
-    {
-        /* FIXME: Implement detached adapters */
-        if (!(adapter.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)) continue;
-        if (!(entry = calloc( 1, sizeof(*entry) ))) return;
-        entry->adapter = adapter;
-        entry->current.dmSize = sizeof(entry->current);
-        EnumDisplaySettingsW( adapter.DeviceName, ENUM_CURRENT_SETTINGS, &entry->current );
-        entry->pending = entry->current;
-        list_add_tail( &devices, &entry->entry );
-    }
-}
-
-static BOOL is_same_devmode( const DEVMODEW *a, const DEVMODEW *b )
-{
-    return a->dmDisplayOrientation == b->dmDisplayOrientation &&
-           a->dmBitsPerPel == b->dmBitsPerPel &&
-           a->dmPelsWidth == b->dmPelsWidth &&
-           a->dmPelsHeight == b->dmPelsHeight &&
-           a->dmDisplayFrequency == b->dmDisplayFrequency;
-}
-
-static void update_display_settings_list( HWND hwnd )
-{
-    DEVMODEW mode = {.dmSize = sizeof(mode)};
-    UINT i, sel = -1;
-
-    SendDlgItemMessageW( hwnd, IDC_DISPLAY_SETTINGS_LIST, CB_RESETCONTENT, 0, 0 );
-    if (!selected) return;
-
-    for (i = 0; EnumDisplaySettingsExW( selected->adapter.DeviceName, i, &mode, 0 ); ++i)
-    {
-        WCHAR buffer[1024];
-        swprintf( buffer, ARRAY_SIZE(buffer), L"%ux%u (%uHz %ubpp)",
-                  mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency, mode.dmBitsPerPel );
-        SendDlgItemMessageW( hwnd, IDC_DISPLAY_SETTINGS_LIST, CB_ADDSTRING, 0, (LPARAM)buffer );
-        if (is_same_devmode( &mode, &selected->current )) sel = i;
-    }
-
-    if (sel != -1) SendDlgItemMessageW( hwnd, IDC_DISPLAY_SETTINGS_LIST, CB_SETCURSEL, sel, 0 );
-}
-
-static RECT rect_from_devmode( const DEVMODEW *mode )
-{
-    RECT rect = {0};
-    if (mode->dmFields & DM_POSITION) SetRect( &rect, mode->dmPosition.x, mode->dmPosition.y, mode->dmPosition.x, mode->dmPosition.y );
-    if (mode->dmFields & DM_PELSWIDTH) rect.right += mode->dmPelsWidth;
-    if (mode->dmFields & DM_PELSHEIGHT) rect.bottom += mode->dmPelsHeight;
-    return rect;
-}
-
-static void device_entry_move_rect( struct device_entry *device, DEVMODEW mode )
-{
-    RECT new_rect, old_rect, tmp;
-    struct device_entry *entry;
-
-    old_rect = rect_from_devmode( &device->pending );
-    new_rect = rect_from_devmode( &mode );
-
-    /* adjust the position to avoid any overlapping */
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-    {
-        RECT other = rect_from_devmode( &entry->current );
-        if (entry == device) continue;
-        if (!IntersectRect( &tmp, &other, &new_rect )) continue;
-        if (old_rect.left >= other.right) mode.dmPosition.x = other.right;
-        if (old_rect.right <= other.left) mode.dmPosition.x = other.left - mode.dmPelsWidth;
-        if (old_rect.top >= other.bottom) mode.dmPosition.y = other.bottom;
-        if (old_rect.bottom <= other.top) mode.dmPosition.y = other.top - mode.dmPelsHeight;
-        new_rect = rect_from_devmode( &mode );
-    }
-
-    /* if our adjustments caused more intersection, keep the original position */
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-    {
-        RECT other = rect_from_devmode( &entry->current );
-        if (entry == device) continue;
-        if (!IntersectRect( &tmp, &other, &new_rect )) continue;
-        mode = device->pending;
-    }
-
-    device->pending = mode;
-}
-
-static void device_entry_snap_rect( struct device_entry *device )
-{
-    POINT offset = {LONG_MAX, LONG_MAX}, nearest = {LONG_MAX, LONG_MAX};
-    DEVMODEW mode = device->pending;
-    struct device_entry *entry;
-    RECT new_rect, tmp;
-
-    new_rect = rect_from_devmode( &mode );
-
-    /* snap the position to the nearest rectangles */
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-    {
-        RECT other = rect_from_devmode( &entry->current );
-        POINT diff = {LONG_MAX, LONG_MAX};
-
-        if (entry == device) continue;
-
-        if (new_rect.left >= other.right) diff.x = other.right - new_rect.left;
-        if (new_rect.right <= other.left) diff.x = other.left - new_rect.right;
-        if (new_rect.top >= other.bottom) diff.y = other.bottom - new_rect.top;
-        if (new_rect.bottom <= other.top) diff.y = other.top - new_rect.bottom;
-        if (abs( nearest.x ) > abs( diff.x ) && abs( nearest.y ) > abs( diff.y )) nearest = diff;
-
-        SetRect( &tmp, LONG_MIN, new_rect.top, LONG_MAX, new_rect.bottom );
-        if (IntersectRect( &tmp, &tmp, &other ))
+        if (out->description[0])
         {
-            diff.y = LONG_MAX;
-            if (abs( offset.x ) > abs( diff.x ) && abs( offset.y ) > abs( diff.x )) offset = diff;
+            MultiByteToWideChar(CP_UTF8, 0, out->description, -1, wdesc, 256);
+            swprintf(buf, ARRAY_SIZE(buf), L"%u. %s", i + 1, wdesc);
         }
+        else
+            swprintf(buf, ARRAY_SIZE(buf), L"%u. %s", i + 1, wname);
 
-        SetRect( &tmp, new_rect.left, LONG_MIN, new_rect.right, LONG_MAX );
-        if (IntersectRect( &tmp, &tmp, &other ))
+        SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)buf);
+        SendMessageW(combo, CB_SETITEMDATA, i, (LPARAM)i);
+
+        if (first_enabled < 0 && out->enabled)
+            first_enabled = (int)i;
+    }
+
+    if (first_enabled < 0 && wlr_data.num_outputs > 0)
+        first_enabled = 0;
+
+    if (first_enabled >= 0)
+    {
+        SendMessageW(combo, CB_SETCURSEL, first_enabled, 0);
+        sel_output = first_enabled;
+    }
+}
+
+static void populate_resolution_combo(HWND hwnd)
+{
+    HWND combo = GetDlgItem(hwnd, IDC_RESOLUTION_COMBO);
+    const struct wlr_output_info *out = get_output();
+    unsigned int pairs[MAX_WLR_MODES][2];
+    int          is_preferred[MAX_WLR_MODES];
+    unsigned int unique = 0, i, j;
+    int cur_sel = -1;
+
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    staged_w = staged_h = 0;
+
+    if (!out) return;
+
+    /* Collect unique WxH, preserving wlr-randr order (largest first). */
+    for (i = 0; i < out->num_modes; i++)
+    {
+        unsigned int w = out->modes[i].width, h = out->modes[i].height;
+        BOOL dup = FALSE;
+
+        for (j = 0; j < unique; j++)
+            if (pairs[j][0] == w && pairs[j][1] == h) { dup = TRUE; break; }
+
+        if (!dup && unique < MAX_WLR_MODES)
         {
-            diff.x = LONG_MAX;
-            if (abs( offset.y ) > abs( diff.y ) && abs( offset.x ) > abs( diff.y )) offset = diff;
+            pairs[unique][0] = w;
+            pairs[unique][1] = h;
+            is_preferred[unique] = 0;
+            unique++;
         }
     }
 
-    if (offset.x == LONG_MAX && offset.y == LONG_MAX) offset = nearest;
-    if (offset.x != LONG_MAX) mode.dmPosition.x += offset.x;
-    if (offset.y != LONG_MAX) mode.dmPosition.y += offset.y;
-
-    /* if our adjustments caused more intersection, keep the original position */
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
+    /* Mark preferred. */
+    for (i = 0; i < out->num_modes; i++)
     {
-        RECT other = rect_from_devmode( &entry->current );
-        if (entry == device) continue;
-        if (!IntersectRect( &tmp, &other, &new_rect )) continue;
-        mode = device->pending;
+        if (!out->modes[i].preferred) continue;
+        for (j = 0; j < unique; j++)
+            if (pairs[j][0] == out->modes[i].width &&
+                pairs[j][1] == out->modes[i].height)
+                is_preferred[j] = 1;
     }
 
-    device->current = mode;
-    device->pending = mode;
-}
-
-static void handle_display_settings_change( HWND hwnd )
-{
-    DEVMODEW mode = {.dmSize = sizeof(mode)};
-    struct device_entry *entry;
-    int i;
-
-    if (!selected) return;
-
-    i = SendDlgItemMessageW( hwnd, IDC_DISPLAY_SETTINGS_LIST, CB_GETCURSEL, 0, 0 );
-    if (i < 0) return;
-
-    if (EnumDisplaySettingsExW( selected->adapter.DeviceName, i, &mode, 0 ))
+    /* Populate. */
+    for (i = 0; i < unique; i++)
     {
-        mode.dmPosition = selected->current.dmPosition;
-        mode.dmFields |= DM_POSITION;
-        device_entry_move_rect( selected, mode );
-        device_entry_snap_rect( selected );
+        WCHAR buf[80];
+        if (is_preferred[i])
+            swprintf(buf, ARRAY_SIZE(buf),
+                     L"%u \u00d7 %u (Recommended)", pairs[i][0], pairs[i][1]);
+        else
+            swprintf(buf, ARRAY_SIZE(buf),
+                     L"%u \u00d7 %u", pairs[i][0], pairs[i][1]);
+
+        SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)buf);
+
+        /* Is this the current resolution? */
+        for (j = 0; j < out->num_modes; j++)
+        {
+            if (out->modes[j].current &&
+                out->modes[j].width  == pairs[i][0] &&
+                out->modes[j].height == pairs[i][1])
+                cur_sel = (int)i;
+        }
     }
 
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-        device_entry_snap_rect( entry );
-
-    InvalidateRect( GetDlgItem( hwnd, IDC_VIRTUAL_DESKTOP ), NULL, TRUE );
-}
-
-static void handle_display_settings_apply(void)
-{
-    struct device_entry *entry;
-
-    LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-        ChangeDisplaySettingsExW( entry->adapter.DeviceName, &entry->current, 0, CDS_UPDATEREGISTRY | CDS_NORESET, NULL );
-    ChangeDisplaySettingsExW( NULL, NULL, 0, 0, NULL );
-}
-
-static void handle_emulate_modeset_change( HWND hwnd )
-{
-    const WCHAR *value = L"N";
-    HKEY hkey;
-
-    /* Registry key can be found in HKCU\Software\Wine\X11 Driver */
-    if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\X11 Driver", 0, NULL, 0,
-                          KEY_SET_VALUE, NULL, &hkey, NULL ))
+    if (cur_sel < 0 && unique > 0) cur_sel = 0;
+    if (cur_sel >= 0)
     {
-        if (IsDlgButtonChecked( hwnd, IDC_EMULATE_MODESET ) == BST_CHECKED) value = L"Y";
-        RegSetValueExW( hkey, L"EmulateModeset", 0, REG_SZ, (BYTE *)value, (wcslen( value ) + 1) * sizeof(WCHAR) );
-        RegCloseKey( hkey );
+        SendMessageW(combo, CB_SETCURSEL, cur_sel, 0);
+        staged_w = pairs[cur_sel][0];
+        staged_h = pairs[cur_sel][1];
     }
 }
 
-static BOOL get_option( const WCHAR *option, BOOL default_value )
+static void populate_orientation_combo(HWND hwnd)
 {
-    BOOL ret = default_value;
-    WCHAR buffer[MAX_PATH];
-    DWORD size = sizeof(buffer);
+    HWND combo = GetDlgItem(hwnd, IDC_ORIENTATION_COMBO);
+    const struct wlr_output_info *out = get_output();
+    unsigned int i;
 
-#define IS_OPTION_TRUE(ch) \
-    ((ch) == 'y' || (ch) == 'Y' || (ch) == 't' || (ch) == 'T' || (ch) == '1')
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    staged_transform = WLR_TRANSFORM_NORMAL;
 
-    /* Registry key can be found in HKCU\Software\Wine\X11 Driver */
-    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\Wine\\X11 Driver", option, RRF_RT_REG_SZ, NULL,
-                       (BYTE *)buffer, &size ))
-        ret = IS_OPTION_TRUE(buffer[0]);
+    for (i = 0; i < 4; i++)
+    {
+        SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)orientation_labels[i]);
+        SendMessageW(combo, CB_SETITEMDATA, i, (LPARAM)i);
+    }
 
-#undef IS_OPTION_TRUE
-    return ret;
+    if (out) staged_transform = out->transform;
+    SendMessageW(combo, CB_SETCURSEL, staged_transform, 0);
 }
 
-static RECT map_virtual_client_rect( RECT rect, RECT client_rect, RECT virtual_rect, float scale )
+/* Read back the resolution from the combo (parses "W × H …"). */
+static void read_resolution_combo(HWND hwnd)
 {
-    OffsetRect( &rect, -(virtual_rect.left + virtual_rect.right) / 2, -(virtual_rect.top + virtual_rect.bottom) / 2 );
-    rect.left *= scale;
-    rect.right *= scale;
-    rect.top *= scale;
-    rect.bottom *= scale;
-    OffsetRect( &rect, (client_rect.left + client_rect.right) / 2, (client_rect.top + client_rect.bottom) / 2 );
-    return rect;
+    int idx = (int)SendDlgItemMessageW(hwnd, IDC_RESOLUTION_COMBO,
+                                       CB_GETCURSEL, 0, 0);
+    WCHAR buf[80];
+    unsigned int w = 0, h = 0;
+
+    if (idx < 0) return;
+    SendDlgItemMessageW(hwnd, IDC_RESOLUTION_COMBO,
+                        CB_GETLBTEXT, idx, (LPARAM)buf);
+
+    /* Parse "1920 × 1080" — the × is U+00D7 but we just skip non-digits. */
+    if (swscanf(buf, L"%u %*c %u", &w, &h) >= 2 ||
+        swscanf(buf, L"%u%*c%u", &w, &h) >= 2)
+    {
+        staged_w = w;
+        staged_h = h;
+    }
 }
 
-static void draw_monitor_rect( HDC hdc, struct device_entry *entry, RECT rect )
+/* ================================================================== */
+/* Main dialog — apply                                                */
+/* ================================================================== */
+
+static BOOL apply_main_settings(HWND hwnd)
 {
-    HFONT font = SelectObject( hdc, GetStockObject( ANSI_VAR_FONT ) );
+    const struct wlr_output_info *out = get_output();
+    struct wlr_apply_params ap;
 
-    SelectObject( hdc, GetStockObject( DC_BRUSH ) );
-    SetDCBrushColor( hdc, GetSysColor( entry == selected ? COLOR_HIGHLIGHT : COLOR_WINDOW ) );
-    SetDCPenColor( hdc, GetSysColor( entry->mouse_over ? COLOR_HIGHLIGHT : COLOR_WINDOWFRAME ) );
-    Rectangle( hdc, rect.left, rect.top, rect.right, rect.bottom );
+    if (!out || !ensure_unix()) return FALSE;
 
-    DrawTextW( hdc, entry->adapter.DeviceName, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP );
-    SelectObject( hdc, font );
+    memset(&ap, 0, sizeof(ap));
+    lstrcpynA(ap.output_name, out->name, sizeof(ap.output_name));
+    ap.flags     = WLR_APPLY_MODE | WLR_APPLY_TRANSFORM;
+    ap.width     = staged_w;
+    ap.height    = staged_h;
+    ap.transform = staged_transform;
+
+    TRACE("Main apply: %ux%u transform=%u on %s\n",
+          staged_w, staged_h, staged_transform, out->name);
+
+    if (UNIX_CALL(unix_wlr_apply, &ap) != 0)
+    {
+        MessageBoxW(hwnd, L"Failed to apply display settings.\n\n"
+                    L"The selected mode may not be supported by your display.",
+                    L"Display Settings", MB_ICONWARNING | MB_OK);
+        return FALSE;
+    }
+
+    /* Re-enumerate so everything is consistent. */
+    enumerate_outputs();
+    populate_output_combo(hwnd);
+    populate_resolution_combo(hwnd);
+    populate_orientation_combo(hwnd);
+    InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+    return TRUE;
 }
 
-static LRESULT CALLBACK desktop_view_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
+/* ================================================================== */
+/* Monitor-layout preview                                             */
+/* ================================================================== */
+
+static RECT compute_bounding(void)
 {
-    HWND dialog = (HWND)GetWindowLongPtrW( hwnd, GWLP_USERDATA );
+    RECT b = {0};
+    unsigned int i;
 
-    TRACE( "hwnd %p, msg %#x, wparam %#Ix, lparam %#Ix\n", hwnd, msg, wparam, lparam );
+    for (i = 0; i < wlr_data.num_outputs; i++)
+    {
+        const struct wlr_output_info *o = &wlr_data.outputs[i];
+        unsigned int w = 0, h = 0, m;
+        RECT r;
 
+        if (!o->enabled) continue;
+
+        for (m = 0; m < o->num_modes; m++)
+            if (o->modes[m].current) { w = o->modes[m].width; h = o->modes[m].height; break; }
+        if (!w && o->num_modes) { w = o->modes[0].width; h = o->modes[0].height; }
+        if (!w) { w = 1920; h = 1080; }
+
+        SetRect(&r, o->pos_x, o->pos_y, o->pos_x + (int)w, o->pos_y + (int)h);
+        if (i == 0) b = r;
+        else        UnionRect(&b, &b, &r);
+    }
+    if (b.right <= b.left) { b.right = 1920; b.bottom = 1080; }
+    return b;
+}
+
+static void draw_monitor(HDC hdc, const struct wlr_output_info *o,
+                         RECT client, RECT virt, float scale, BOOL is_sel,
+                         unsigned int index)
+{
+    unsigned int w = 0, h = 0, m;
+    RECT src, dst;
+    WCHAR label[32];
+
+    for (m = 0; m < o->num_modes; m++)
+        if (o->modes[m].current) { w = o->modes[m].width; h = o->modes[m].height; break; }
+    if (!w && o->num_modes) { w = o->modes[0].width; h = o->modes[0].height; }
+    if (!w) { w = 1920; h = 1080; }
+
+    SetRect(&src, o->pos_x, o->pos_y, o->pos_x + (int)w, o->pos_y + (int)h);
+
+    /* Map virtual → client coordinates. */
+    OffsetRect(&src, -(virt.left + virt.right) / 2, -(virt.top + virt.bottom) / 2);
+    dst.left   = (LONG)(src.left   * scale) + (client.left + client.right)  / 2;
+    dst.top    = (LONG)(src.top    * scale) + (client.top  + client.bottom) / 2;
+    dst.right  = (LONG)(src.right  * scale) + (client.left + client.right)  / 2;
+    dst.bottom = (LONG)(src.bottom * scale) + (client.top  + client.bottom) / 2;
+
+    /* Fill. */
+    SelectObject(hdc, GetStockObject(DC_BRUSH));
+    SelectObject(hdc, GetStockObject(DC_PEN));
+    SetDCBrushColor(hdc, GetSysColor(is_sel ? COLOR_HIGHLIGHT : COLOR_WINDOW));
+    SetDCPenColor(hdc, GetSysColor(COLOR_WINDOWFRAME));
+    Rectangle(hdc, dst.left, dst.top, dst.right, dst.bottom);
+
+    /* Number label (1-based like Windows). */
+    swprintf(label, ARRAY_SIZE(label), L"%u", index + 1);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, GetSysColor(is_sel ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
+    {
+        HFONT big = CreateFontW(-28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                DEFAULT_PITCH, L"Ms Shell Dlg");
+        HFONT old = SelectObject(hdc, big);
+        DrawTextW(hdc, label, -1, &dst, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+        SelectObject(hdc, old);
+        DeleteObject(big);
+    }
+}
+
+static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg,
+                                          WPARAM wparam, LPARAM lparam)
+{
     if (msg == WM_PAINT)
     {
-        RECT rect, client_rect, virtual_rect = {0};
-        struct device_entry *entry;
-        PAINTSTRUCT paint;
+        PAINTSTRUCT ps;
+        RECT client, virt;
         float scale;
+        unsigned int i;
         HDC hdc;
 
-        GetClientRect( hwnd, &client_rect );
+        GetClientRect(hwnd, &client);
+        hdc = BeginPaint(hwnd, &ps);
 
-        hdc = BeginPaint( hwnd, &paint );
-        FillRect( hdc, &client_rect, (HBRUSH)(COLOR_WINDOW + 1) );
-        SetDCPenColor( hdc, GetSysColor( COLOR_WINDOWFRAME ) );
-        SelectObject( hdc, GetStockObject( GRAY_BRUSH ) );
-        SelectObject( hdc, GetStockObject( DC_PEN ) );
-        RoundRect( hdc, client_rect.left, client_rect.top, client_rect.right, client_rect.bottom, 5, 5 );
-
-        LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
+        /* Dark-blue gradient background (simplified: solid). */
         {
-            rect = rect_from_devmode( &entry->pending );
-            UnionRect( &virtual_rect, &virtual_rect, &rect );
-        }
-        scale = min( (client_rect.right - client_rect.left) / (float)(virtual_rect.right - virtual_rect.left),
-                     (client_rect.bottom - client_rect.top) / (float)(virtual_rect.bottom - virtual_rect.top) );
-        scale *= 0.95;
-
-        rect = map_virtual_client_rect( virtual_rect, client_rect, virtual_rect, scale );
-        SelectObject( hdc, GetStockObject( LTGRAY_BRUSH ) );
-        Rectangle( hdc, rect.left, rect.top, rect.right, rect.bottom );
-        scale *= 0.95;
-
-        LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-        {
-            rect = rect_from_devmode( &entry->pending );
-            rect = map_virtual_client_rect( rect, client_rect, virtual_rect, scale );
-            draw_monitor_rect( hdc, entry, rect );
-            entry->draw_rect = rect;
-            entry->draw_scale = scale;
+            HBRUSH bg = CreateSolidBrush(RGB(58, 110, 165));
+            FillRect(hdc, &client, bg);
+            DeleteObject(bg);
         }
 
-        EndPaint( hwnd, &paint );
-        return 0;
-    }
+        virt  = compute_bounding();
+        scale = min((float)(client.right  - client.left) / (float)(virt.right  - virt.left),
+                    (float)(client.bottom - client.top)  / (float)(virt.bottom - virt.top));
+        scale *= 0.80f;
 
-    if (msg == WM_MOUSEMOVE)
-    {
-        POINT pt = {(short)LOWORD(lparam), (short)HIWORD(lparam)};
-        struct device_entry *entry;
-        BOOL changed = FALSE;
-
-        LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
+        for (i = 0; i < wlr_data.num_outputs; i++)
         {
-            POINT rel = {pt.x - entry->move_point.x, pt.y - entry->move_point.y};
-            BOOL mouse_over = PtInRect( &entry->draw_rect, pt );
-
-            if (entry->mouse_over != mouse_over) changed = TRUE;
-            entry->mouse_over = mouse_over;
-
-            if (!dragging && entry == selected && (wparam & MK_LBUTTON) &&
-                max( abs( rel.x ), abs( rel.y ) ) >= 5)
-                dragging = TRUE;
-
-            if (entry == selected && dragging)
-            {
-                DEVMODEW mode = entry->current;
-                mode.dmPosition.x += rel.x / entry->draw_scale;
-                mode.dmPosition.y += rel.y / entry->draw_scale;
-                device_entry_move_rect( entry, mode );
-                SetCapture( hwnd );
-                changed = TRUE;
-            }
+            if (!wlr_data.outputs[i].enabled) continue;
+            draw_monitor(hdc, &wlr_data.outputs[i], client, virt, scale,
+                         (int)i == sel_output, i);
         }
 
-        if (changed) InvalidateRect( hwnd, NULL, TRUE );
+        EndPaint(hwnd, &ps);
         return 0;
     }
 
     if (msg == WM_LBUTTONDOWN)
     {
-        POINT pt = {(short)LOWORD(lparam), (short)HIWORD(lparam)};
-        struct device_entry *entry;
-        BOOL changed = FALSE;
+        /* TODO: hit-test for multi-monitor selection. */
+        return 0;
+    }
 
-        selected = NULL;
-        dragging = FALSE;
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
 
-        LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
+static void create_desktop_view(HWND hwnd)
+{
+    HWND parent = GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP);
+    RECT rc;
+    LONG m;
+
+    GetClientRect(parent, &rc);
+    rc.top += 4;
+    m = (rc.bottom - rc.top) * 4 / 100;
+    InflateRect(&rc, -m, -m);
+
+    {
+        HWND view = CreateWindowW(L"DeskCplDesktop", NULL, WS_CHILD,
+                                  rc.left, rc.top,
+                                  rc.right - rc.left, rc.bottom - rc.top,
+                                  parent, NULL, NULL, module);
+        SetWindowLongPtrW(view, GWLP_USERDATA, (UINT_PTR)hwnd);
+        ShowWindow(view, SW_SHOW);
+    }
+}
+
+/* ================================================================== */
+/* Advanced Settings — Adapter tab                                    */
+/* ================================================================== */
+
+static INT_PTR CALLBACK adapter_dialog_proc(HWND hwnd, UINT msg,
+                                            WPARAM wparam, LPARAM lparam)
+{
+    if (msg == WM_INITDIALOG)
+    {
+        const struct wlr_output_info *out = get_output();
+        WCHAR wname[64];
+
+        if (out)
         {
-            BOOL mouse_over = PtInRect( &entry->draw_rect, pt );
-            if ((entry == selected) != mouse_over) changed = TRUE;
-            if (mouse_over) selected = entry;
-            entry->move_point = pt;
+            MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
+            SetDlgItemTextW(hwnd, IDC_ADAPTER_TYPE, L"frostedglass (wlroots)");
         }
+        else
+            SetDlgItemTextW(hwnd, IDC_ADAPTER_TYPE, L"Unknown");
 
-        update_display_settings_list( dialog );
-        if (changed) InvalidateRect( hwnd, NULL, TRUE );
-        return 0;
+        {
+            WCHAR info[512];
+            if (out)
+            {
+                WCHAR wdesc[256];
+                MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
+                MultiByteToWideChar(CP_UTF8, 0, out->description, -1, wdesc, 256);
+
+                unsigned int cw = 0, ch = 0, m;
+                for (m = 0; m < out->num_modes; m++)
+                    if (out->modes[m].current)
+                    {
+                        cw = out->modes[m].width;
+                        ch = out->modes[m].height;
+                        break;
+                    }
+
+                swprintf(info, ARRAY_SIZE(info),
+                         L"Connector:  %s\r\n"
+                         L"Description:  %s\r\n"
+                         L"Current mode:  %u \u00d7 %u\r\n"
+                         L"Position:  %d, %d\r\n"
+                         L"Available modes:  %u\r\n"
+                         L"Adaptive sync:  %s",
+                         wname, wdesc, cw, ch,
+                         out->pos_x, out->pos_y,
+                         out->num_modes,
+                         out->adaptive_sync ? L"Supported" : L"Not reported");
+            }
+            else
+                swprintf(info, ARRAY_SIZE(info), L"No display selected.");
+
+            SetDlgItemTextW(hwnd, IDC_ADAPTER_INFO, info);
+        }
+        return TRUE;
     }
-
-    if (msg == WM_LBUTTONUP)
-    {
-        struct device_entry *entry;
-        SetCapture( 0 );
-
-        if (selected) device_entry_snap_rect( selected );
-        LIST_FOR_EACH_ENTRY( entry, &devices, struct device_entry, entry )
-            device_entry_snap_rect( entry );
-
-        dragging = FALSE;
-        InvalidateRect( hwnd, NULL, TRUE );
-        return 0;
-    }
-
-    if (msg == WM_RBUTTONDOWN)
-    {
-        SetCapture( 0 );
-        refresh_device_list( hwnd );
-        InvalidateRect( hwnd, NULL, TRUE );
-        return 0;
-    }
-
-    return DefWindowProcW( hwnd, msg, wparam, lparam );
+    return FALSE;
 }
 
-static void create_desktop_view( HWND hwnd )
+/* ================================================================== */
+/* Advanced Settings — Monitor tab (refresh rate + VRR)               */
+/* ================================================================== */
+
+/* State for the monitor dialog — initialised on WM_INITDIALOG. */
+static unsigned int mon_rates[MAX_WLR_MODES];
+static unsigned int mon_rate_count;
+
+static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
+                                            WPARAM wparam, LPARAM lparam)
 {
-    HWND parent, view;
-    LONG margin;
-    RECT rect;
-
-    parent = GetDlgItem( hwnd, IDC_VIRTUAL_DESKTOP );
-    GetClientRect( parent, &rect );
-    rect.top += 6;
-
-    margin = (rect.bottom - rect.top) * 5 / 100;
-    InflateRect( &rect, -margin, -margin );
-
-    view = CreateWindowW( L"DeskCplDesktop", NULL, WS_CHILD, rect.left, rect.top, rect.right - rect.left,
-                          rect.bottom - rect.top, parent, NULL, NULL, module );
-    SetWindowLongPtrW( view, GWLP_USERDATA, (UINT_PTR)hwnd );
-    ShowWindow( view, SW_SHOW );
-}
-
-static INT_PTR CALLBACK desktop_dialog_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
-{
-    TRACE( "hwnd %p, msg %#x, wparam %#Ix, lparam %#Ix\n", hwnd, msg, wparam, lparam );
-
     switch (msg)
     {
     case WM_INITDIALOG:
-        refresh_device_list( hwnd );
-        create_desktop_view( hwnd );
-        SendMessageW( GetDlgItem( hwnd, IDC_EMULATE_MODESET ), BM_SETCHECK,
-                      get_option( L"EmulateModeset", FALSE ), 0 );
+    {
+        const struct wlr_output_info *out = get_output();
+        HWND combo = GetDlgItem(hwnd, IDC_REFRESH_COMBO);
+        unsigned int i, j;
+        int cur_sel = -1;
+
+        /* Re-read live state so we reflect anything the main dialog just applied. */
+        enumerate_outputs();
+
+        out = get_output();
+        mon_rate_count = 0;
+
+        if (!out) { SetDlgItemTextW(hwnd, IDC_MONITOR_TYPE, L"No display"); return TRUE; }
+
+        /* Monitor name. */
+        {
+            WCHAR wdesc[256], wname[64];
+            MultiByteToWideChar(CP_UTF8, 0, out->description[0] ? out->description : out->name,
+                                -1, wdesc, 256);
+            SetDlgItemTextW(hwnd, IDC_MONITOR_TYPE, wdesc);
+        }
+
+        /* Determine current resolution (what's actually live). */
+        {
+            unsigned int cur_w = 0, cur_h = 0, cur_mhz = 0;
+            for (i = 0; i < out->num_modes; i++)
+            {
+                if (out->modes[i].current)
+                {
+                    cur_w   = out->modes[i].width;
+                    cur_h   = out->modes[i].height;
+                    cur_mhz = out->modes[i].refresh_mhz;
+                    break;
+                }
+            }
+
+            /* Collect refresh rates for the current resolution. */
+            for (i = 0; i < out->num_modes; i++)
+            {
+                if (out->modes[i].width != cur_w || out->modes[i].height != cur_h)
+                    continue;
+                if (mon_rate_count < MAX_WLR_MODES)
+                    mon_rates[mon_rate_count++] = out->modes[i].refresh_mhz;
+            }
+
+            /* Sort descending. */
+            for (i = 0; i < mon_rate_count; i++)
+                for (j = i + 1; j < mon_rate_count; j++)
+                    if (mon_rates[j] > mon_rates[i])
+                    {
+                        unsigned int t = mon_rates[i];
+                        mon_rates[i] = mon_rates[j];
+                        mon_rates[j] = t;
+                    }
+
+            /* Populate combo. */
+            SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+            for (i = 0; i < mon_rate_count; i++)
+            {
+                WCHAR buf[64];
+                unsigned int hz_int = mon_rates[i] / 1000;
+                swprintf(buf, ARRAY_SIZE(buf), L"%u Hertz", hz_int);
+                SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)buf);
+                SendMessageW(combo, CB_SETITEMDATA, i, (LPARAM)mon_rates[i]);
+
+                if (mon_rates[i] == cur_mhz)
+                    cur_sel = (int)i;
+            }
+
+            if (cur_sel < 0 && mon_rate_count > 0) cur_sel = 0;
+            if (cur_sel >= 0) SendMessageW(combo, CB_SETCURSEL, cur_sel, 0);
+        }
+
+        /* VRR checkbox. */
+        SendDlgItemMessageW(hwnd, IDC_VRR_CHECK, BM_SETCHECK,
+                            out->adaptive_sync ? BST_CHECKED : BST_UNCHECKED, 0);
+
         return TRUE;
+    }
 
     case WM_COMMAND:
-        switch (wparam)
-        {
-        case MAKEWPARAM( IDC_DISPLAY_SETTINGS_LIST, CBN_SELCHANGE ):
-            handle_display_settings_change( hwnd );
-            break;
-        case IDC_EMULATE_MODESET:
-            handle_emulate_modeset_change( hwnd );
-            break;
-        case IDC_DISPLAY_SETTINGS_APPLY:
-            handle_display_settings_apply();
-            break;
-        case IDC_DISPLAY_SETTINGS_RESET:
-            refresh_device_list( hwnd );
-            InvalidateRect( hwnd, NULL, TRUE );
-            break;
-        }
+        if (LOWORD(wparam) == IDC_REFRESH_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
+            PropSheet_Changed(GetParent(hwnd), hwnd);
+        if (LOWORD(wparam) == IDC_VRR_CHECK)
+            PropSheet_Changed(GetParent(hwnd), hwnd);
         return TRUE;
 
     case WM_NOTIFY:
-        return TRUE;
+    {
+        NMHDR *nm = (NMHDR *)lparam;
+        if (nm->code == PSN_APPLY)
+        {
+            const struct wlr_output_info *out = get_output();
+            struct wlr_apply_params ap;
+            int idx;
+
+            if (!out || !ensure_unix())
+            {
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID);
+                return TRUE;
+            }
+
+            memset(&ap, 0, sizeof(ap));
+            lstrcpynA(ap.output_name, out->name, sizeof(ap.output_name));
+
+            /* Refresh rate. */
+            idx = (int)SendDlgItemMessageW(hwnd, IDC_REFRESH_COMBO,
+                                           CB_GETCURSEL, 0, 0);
+            if (idx >= 0)
+            {
+                ap.refresh_mhz = (unsigned int)SendDlgItemMessageW(
+                    hwnd, IDC_REFRESH_COMBO, CB_GETITEMDATA, idx, 0);
+                ap.flags |= WLR_APPLY_REFRESH;
+            }
+
+            /* VRR. */
+            ap.adaptive_sync = (IsDlgButtonChecked(hwnd, IDC_VRR_CHECK) == BST_CHECKED);
+            ap.flags |= WLR_APPLY_VRR;
+
+            TRACE("Monitor apply: refresh=%u mHz vrr=%d on %s\n",
+                  ap.refresh_mhz, ap.adaptive_sync, out->name);
+
+            if (UNIX_CALL(unix_wlr_apply, &ap) != 0)
+            {
+                MessageBoxW(hwnd,
+                    L"Failed to apply monitor settings.\n\n"
+                    L"The selected refresh rate may not be supported, "
+                    L"or VRR may not be available for this display.",
+                    L"Monitor Settings", MB_ICONWARNING | MB_OK);
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID);
+                return TRUE;
+            }
+
+            SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+            return TRUE;
+        }
+        break;
+    }
     }
 
     return FALSE;
 }
 
-static int CALLBACK property_sheet_callback( HWND hwnd, UINT msg, LPARAM lparam )
+/* ================================================================== */
+/* Open Advanced Settings property sheet                               */
+/* ================================================================== */
+
+static void open_advanced_settings(HWND parent)
 {
-    TRACE( "hwnd %p, msg %#x, lparam %#Ix\n", hwnd, msg, lparam );
+    const struct wlr_output_info *out = get_output();
+    WCHAR title[320], wname[64], wdesc[256];
+
+    /* Build a Windows-style title: "Monitor and Compositor Properties" */
+    if (out && out->description[0])
+    {
+        MultiByteToWideChar(CP_UTF8, 0, out->description, -1, wdesc, 256);
+        swprintf(title, ARRAY_SIZE(title), L"%s Properties", wdesc);
+    }
+    else if (out)
+    {
+        MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
+        swprintf(title, ARRAY_SIZE(title), L"%s Properties", wname);
+    }
+    else
+        swprintf(title, ARRAY_SIZE(title), L"Advanced Display Settings");
+
+    {
+        PROPSHEETPAGEW pages[] =
+        {
+            {
+                .dwSize      = sizeof(PROPSHEETPAGEW),
+                .dwFlags     = PSP_USETITLE,
+                .hInstance   = module,
+                .pszTemplate = MAKEINTRESOURCEW(IDD_ADAPTER),
+                .pszTitle    = L"Adapter",
+                .pfnDlgProc  = adapter_dialog_proc,
+            },
+            {
+                .dwSize      = sizeof(PROPSHEETPAGEW),
+                .dwFlags     = PSP_USETITLE,
+                .hInstance   = module,
+                .pszTemplate = MAKEINTRESOURCEW(IDD_MONITOR),
+                .pszTitle    = L"Monitor",
+                .pfnDlgProc  = monitor_dialog_proc,
+            },
+        };
+        PROPSHEETHEADERW hdr =
+        {
+            .dwSize     = sizeof(PROPSHEETHEADERW),
+            .dwFlags    = PSH_PROPSHEETPAGE,
+            .hwndParent = parent,
+            .hInstance  = module,
+            .pszCaption = title,
+            .nPages     = ARRAY_SIZE(pages),
+            .nStartPage = 1,  /* open on Monitor tab */
+            .ppsp       = pages,
+        };
+
+        PropertySheetW(&hdr);
+    }
+
+    /* After closing advanced settings, re-enumerate so the main page
+     * reflects any changes made to refresh rate or VRR. */
+    enumerate_outputs();
+}
+
+/* ================================================================== */
+/* Main dialog procedure                                              */
+/* ================================================================== */
+
+static INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
+                                            WPARAM wparam, LPARAM lparam)
+{
+    TRACE("hwnd %p, msg %#x, wparam %#Ix, lparam %#Ix\n",
+          hwnd, msg, wparam, lparam);
+
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+        if (enumerate_outputs())
+        {
+            populate_output_combo(hwnd);
+            populate_resolution_combo(hwnd);
+            populate_orientation_combo(hwnd);
+        }
+        create_desktop_view(hwnd);
+        return TRUE;
+
+    case WM_COMMAND:
+        switch (LOWORD(wparam))
+        {
+        case IDC_OUTPUT_COMBO:
+            if (HIWORD(wparam) == CBN_SELCHANGE)
+            {
+                int idx = (int)SendDlgItemMessageW(hwnd, IDC_OUTPUT_COMBO,
+                                                   CB_GETCURSEL, 0, 0);
+                if (idx >= 0)
+                    sel_output = (int)SendDlgItemMessageW(hwnd, IDC_OUTPUT_COMBO,
+                                                          CB_GETITEMDATA, idx, 0);
+                populate_resolution_combo(hwnd);
+                populate_orientation_combo(hwnd);
+                InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+                PropSheet_Changed(GetParent(hwnd), hwnd);
+            }
+            break;
+
+        case IDC_RESOLUTION_COMBO:
+            if (HIWORD(wparam) == CBN_SELCHANGE)
+            {
+                read_resolution_combo(hwnd);
+                InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+                PropSheet_Changed(GetParent(hwnd), hwnd);
+            }
+            break;
+
+        case IDC_ORIENTATION_COMBO:
+            if (HIWORD(wparam) == CBN_SELCHANGE)
+            {
+                int idx = (int)SendDlgItemMessageW(hwnd, IDC_ORIENTATION_COMBO,
+                                                   CB_GETCURSEL, 0, 0);
+                if (idx >= 0)
+                    staged_transform = (unsigned int)SendDlgItemMessageW(
+                        hwnd, IDC_ORIENTATION_COMBO, CB_GETITEMDATA, idx, 0);
+                PropSheet_Changed(GetParent(hwnd), hwnd);
+            }
+            break;
+
+        case IDC_ADVANCED_BUTTON:
+            open_advanced_settings(hwnd);
+            /* Refresh combos — advanced may have changed refresh/VRR. */
+            populate_resolution_combo(hwnd);
+            populate_orientation_combo(hwnd);
+            InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+            break;
+        }
+        return TRUE;
+
+    case WM_NOTIFY:
+    {
+        NMHDR *nm = (NMHDR *)lparam;
+
+        if (nm->code == PSN_APPLY)
+        {
+            if (apply_main_settings(hwnd))
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
+            else
+                SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_INVALID);
+            return TRUE;
+        }
+        break;
+    }
+    }
+
+    return FALSE;
+}
+
+/* ================================================================== */
+/* Property-sheet boilerplate                                         */
+/* ================================================================== */
+
+static int CALLBACK property_sheet_callback(HWND hwnd, UINT msg,
+                                            LPARAM lparam)
+{
+    TRACE("hwnd %p, msg %#x, lparam %#Ix\n", hwnd, msg, lparam);
     return 0;
 }
 
-static void create_property_sheets( HWND parent )
+static void create_property_sheets(HWND parent)
 {
     INITCOMMONCONTROLSEX init =
     {
         .dwSize = sizeof(INITCOMMONCONTROLSEX),
-        .dwICC = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES,
+        .dwICC  = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES,
     };
     PROPSHEETPAGEW pages[] =
     {
         {
-            .dwSize = sizeof(PROPSHEETPAGEW),
-            .hInstance = module,
-            .pszTemplate = MAKEINTRESOURCEW( IDD_DESKTOP ),
-            .pfnDlgProc = desktop_dialog_proc,
+            .dwSize      = sizeof(PROPSHEETPAGEW),
+            .hInstance   = module,
+            .pszTemplate = MAKEINTRESOURCEW(IDD_DESKTOP),
+            .pfnDlgProc  = desktop_dialog_proc,
         },
     };
     PROPSHEETHEADERW header =
     {
-        .dwSize = sizeof(PROPSHEETHEADERW),
-        .dwFlags = PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK,
+        .dwSize     = sizeof(PROPSHEETHEADERW),
+        .dwFlags    = PSH_PROPSHEETPAGE | PSH_USEICONID | PSH_USECALLBACK,
         .hwndParent = parent,
-        .hInstance = module,
-        .pszCaption = MAKEINTRESOURCEW( IDS_CPL_NAME ),
-        .nPages = ARRAY_SIZE(pages),
-        .ppsp = pages,
+        .hInstance  = module,
+        .pszCaption = MAKEINTRESOURCEW(IDS_CPL_NAME),
+        .nPages     = ARRAY_SIZE(pages),
+        .ppsp       = pages,
         .pfnCallback = property_sheet_callback,
     };
-    ACTCTXW context_desc =
+    ACTCTXW ctx =
     {
-        .cbSize = sizeof(ACTCTXW),
-        .hModule = module,
-        .lpResourceName = MAKEINTRESOURCEW( 124 ),
-        .dwFlags = ACTCTX_FLAG_HMODULE_VALID | ACTCTX_FLAG_RESOURCE_NAME_VALID,
+        .cbSize         = sizeof(ACTCTXW),
+        .hModule        = module,
+        .lpResourceName = MAKEINTRESOURCEW(124),
+        .dwFlags        = ACTCTX_FLAG_HMODULE_VALID | ACTCTX_FLAG_RESOURCE_NAME_VALID,
     };
     ULONG_PTR cookie;
     HANDLE context;
     BOOL activated;
 
-    OleInitialize( NULL );
+    OleInitialize(NULL);
 
-    context = CreateActCtxW( &context_desc );
-    if (context == INVALID_HANDLE_VALUE) activated = FALSE;
-    else activated = ActivateActCtx( context, &cookie );
+    context = CreateActCtxW(&ctx);
+    activated = (context != INVALID_HANDLE_VALUE) && ActivateActCtx(context, &cookie);
 
-    InitCommonControlsEx( &init );
-    PropertySheetW( &header );
+    InitCommonControlsEx(&init);
+    PropertySheetW(&header);
 
-    if (activated) DeactivateActCtx( 0, cookie );
-    ReleaseActCtx( context );
+    if (activated) DeactivateActCtx(0, cookie);
+    ReleaseActCtx(context);
     OleUninitialize();
 }
 
+/* ================================================================== */
+/* Window-class registration                                          */
+/* ================================================================== */
+
 static void register_window_class(void)
 {
-    WNDCLASSW desktop_class =
+    WNDCLASSW cls =
     {
-        .hInstance = module,
-        .lpfnWndProc = desktop_view_proc,
+        .hInstance     = module,
+        .lpfnWndProc  = desktop_view_proc,
         .lpszClassName = L"DeskCplDesktop",
     };
-    RegisterClassW( &desktop_class );
+    RegisterClassW(&cls);
 }
 
 static void unregister_window_class(void)
 {
-    UnregisterClassW( L"DeskCplDesktop", module );
+    UnregisterClassW(L"DeskCplDesktop", module);
 }
 
-/*********************************************************************
- * CPlApplet (desk.cpl.@)
- */
-LONG CALLBACK CPlApplet( HWND hwnd, UINT command, LPARAM param1, LPARAM param2 )
+/* ================================================================== */
+/* CPlApplet — Control Panel entry point                              */
+/* ================================================================== */
+
+LONG CALLBACK CPlApplet(HWND hwnd, UINT command, LPARAM param1, LPARAM param2)
 {
-    TRACE( "hwnd %p, command %u, param1 %#Ix, param2 %#Ix\n", hwnd, command, param1, param2 );
+    TRACE("hwnd %p, command %u, param1 %#Ix, param2 %#Ix\n",
+          hwnd, command, param1, param2);
 
     switch (command)
     {
@@ -583,12 +902,12 @@ LONG CALLBACK CPlApplet( HWND hwnd, UINT command, LPARAM param1, LPARAM param2 )
         info->idIcon = ICO_MAIN;
         info->idName = IDS_CPL_NAME;
         info->idInfo = IDS_CPL_INFO;
-        info->lData = 0;
+        info->lData  = 0;
         return TRUE;
     }
 
     case CPL_DBLCLK:
-        create_property_sheets( hwnd );
+        create_property_sheets(hwnd);
         break;
 
     case CPL_STOP:
@@ -599,16 +918,17 @@ LONG CALLBACK CPlApplet( HWND hwnd, UINT command, LPARAM param1, LPARAM param2 )
     return FALSE;
 }
 
-/*********************************************************************
- *  DllMain
- */
-BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, LPVOID reserved )
+/* ================================================================== */
+/* DllMain                                                            */
+/* ================================================================== */
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
-    TRACE( "instance %p, reason %ld, reserved %p\n", instance, reason, reserved );
+    TRACE("instance %p, reason %ld, reserved %p\n", instance, reason, reserved);
 
     if (reason == DLL_PROCESS_ATTACH)
     {
-        DisableThreadLibraryCalls( instance );
+        DisableThreadLibraryCalls(instance);
         module = instance;
     }
 

@@ -1,5 +1,6 @@
 /*
  * Copyright 2024 Rémi Bernon for CodeWeavers
+ * Copyright 2025 YetiOS contributors
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -14,7 +15,6 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
 #include "resource.h"
@@ -26,19 +26,75 @@ LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 STRINGTABLE
 BEGIN
     IDS_CPL_NAME        "Display Settings"
-    IDS_CPL_INFO        "Configure monitors and display devices."
+    IDS_CPL_INFO        "Configure display resolution, orientation, and refresh rate."
 END
 
-IDD_DESKTOP DIALOG 0, 0, 320, 300
+/* -----------------------------------------------------------------------
+ * Main property-sheet page — mirrors the Windows "Screen Resolution"
+ * control-panel layout (Win 7 / 8 style).
+ * ----------------------------------------------------------------------- */
+
+IDD_DESKTOP DIALOG 0, 0, 330, 226
 STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
-CAPTION "Desktop"
+CAPTION "Display"
 FONT 8, "Ms Shell Dlg"
 {
-    GROUPBOX        "Virtual Desktop", IDC_VIRTUAL_DESKTOP, 10, 10, 300, 120
-    COMBOBOX        IDC_DISPLAY_SETTINGS_LIST, 10, 136, 160, 60, CBS_DROPDOWNLIST | CBS_HASSTRINGS
-    PUSHBUTTON      "&Reset", IDC_DISPLAY_SETTINGS_RESET, 180, 135, 60, 15
-    PUSHBUTTON      "&Apply", IDC_DISPLAY_SETTINGS_APPLY, 250, 135, 60, 15
-    AUTOCHECKBOX    "Emulate display mode changes (requires restart)", IDC_EMULATE_MODESET, 10, 155, 300, 10
+    LTEXT           "Change the appearance of your display",
+                    IDC_STATIC, 10, 6, 310, 10
+
+    GROUPBOX        "", IDC_VIRTUAL_DESKTOP, 10, 20, 310, 100
+
+    LTEXT           "Display:",      IDC_STATIC,  14, 132, 55, 10
+    COMBOBOX        IDC_OUTPUT_COMBO,             74, 130, 246, 80,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
+
+    LTEXT           "Resolution:",   IDC_STATIC,  14, 152, 55, 10
+    COMBOBOX        IDC_RESOLUTION_COMBO,         74, 150, 246, 150,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
+
+    LTEXT           "Orientation:",  IDC_STATIC,  14, 172, 55, 10
+    COMBOBOX        IDC_ORIENTATION_COMBO,        74, 170, 246, 80,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
+
+    PUSHBUTTON      "Advanced settings", IDC_ADVANCED_BUTTON, 226, 196, 94, 14
+}
+
+/* -----------------------------------------------------------------------
+ * Advanced Settings → Adapter tab
+ * ----------------------------------------------------------------------- */
+
+IDD_ADAPTER DIALOG 0, 0, 252, 218
+STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
+CAPTION "Adapter"
+FONT 8, "Ms Shell Dlg"
+{
+    GROUPBOX        "Adapter Type", IDC_STATIC, 7, 7, 238, 36
+    LTEXT           "", IDC_ADAPTER_TYPE, 15, 22, 222, 14
+
+    GROUPBOX        "Adapter Information", IDC_STATIC, 7, 50, 238, 160
+    LTEXT           "", IDC_ADAPTER_INFO, 15, 65, 222, 136
+}
+
+/* -----------------------------------------------------------------------
+ * Advanced Settings → Monitor tab  (refresh rate + VRR)
+ * ----------------------------------------------------------------------- */
+
+IDD_MONITOR DIALOG 0, 0, 252, 218
+STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
+CAPTION "Monitor"
+FONT 8, "Ms Shell Dlg"
+{
+    GROUPBOX        "Monitor Type",     IDC_STATIC, 7, 7, 238, 40
+    LTEXT           "",                 IDC_MONITOR_TYPE, 15, 24, 222, 16
+
+    GROUPBOX        "Monitor Settings", IDC_STATIC, 7, 56, 238, 120
+
+    LTEXT           "Screen refresh rate:", IDC_STATIC, 15, 72, 120, 10
+    COMBOBOX        IDC_REFRESH_COMBO, 15, 86, 222, 100,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
+
+    AUTOCHECKBOX    "Enable Variable Refresh Rate (VRR)",
+                    IDC_VRR_CHECK, 15, 112, 200, 12
 }
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
