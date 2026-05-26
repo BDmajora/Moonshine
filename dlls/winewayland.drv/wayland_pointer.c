@@ -1094,14 +1094,21 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
 
     return TRUE;
 }
+/*
+ * Wine-side change: replace waylanddrv_unix_set_boot_cursor at the
+ * END of wayland_pointer.c (the rest of the file is unchanged).
+ *
+ * The protocol now takes wl_surface instead of wl_buffer, so we
+ * create a surface, attach the buffer, commit, then send.
+ */
 
 /***********************************************************************
  *           waylanddrv_unix_set_boot_cursor
  *
- * Called once from DllMain at process startup.  Receives the Win32
- * default arrow HCURSOR, renders it to a wl_buffer, and sends it
- * to the compositor via yetios_cursor_manager_v1.  No pointer focus
- * required — the compositor uses this as the global system cursor.
+ * Called once from DllMain at process startup.  Renders the Win32
+ * arrow to a wl_surface and sends it to the compositor via
+ * yetios_cursor_manager_v1.  The compositor copies the pixels and
+ * owns them forever.  No pointer focus required.
  */
 NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
 {
@@ -1109,6 +1116,7 @@ NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
     HCURSOR hcursor = (HCURSOR)(UINT_PTR)params->cursor;
     ICONINFOEXW info = {0};
     struct wayland_shm_buffer *shm_buffer = NULL;
+    struct wl_surface *cursor_surface = NULL;
 
     if (!process_wayland.yetios_cursor_manager_v1)
     {
@@ -1128,6 +1136,7 @@ NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
         return STATUS_UNSUCCESSFUL;
     }
 
+    /* Render cursor to shm buffer */
     if (info.hbmColor)
     {
         HDC hdc = NtGdiCreateCompatibleDC(0);
@@ -1145,15 +1154,29 @@ NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
 
     if (!shm_buffer)
     {
-        ERR("Failed to render boot cursor to shm buffer\n");
+        ERR("Failed to render boot cursor\n");
         return STATUS_UNSUCCESSFUL;
     }
 
-    /* Send the cursor buffer to the compositor.  No enter serial,
-     * no pointer focus — the compositor applies it globally. */
+    /* Create a wl_surface, attach the buffer, commit it */
+    cursor_surface = wl_compositor_create_surface(process_wayland.wl_compositor);
+    if (!cursor_surface)
+    {
+        ERR("Failed to create wl_surface for boot cursor\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    wl_surface_attach(cursor_surface, shm_buffer->wl_buffer, 0, 0);
+    wl_surface_damage_buffer(cursor_surface, 0, 0,
+                             shm_buffer->width, shm_buffer->height);
+    wl_surface_commit(cursor_surface);
+
+    /* Send the committed surface to the compositor.
+     * The compositor will copy the pixels and own them permanently.
+     * No enter serial, no pointer focus needed. */
     yetios_cursor_manager_v1_set_cursor(
         process_wayland.yetios_cursor_manager_v1,
-        shm_buffer->wl_buffer,
+        cursor_surface,
         info.xHotspot, info.yHotspot);
 
     wl_display_flush(process_wayland.wl_display);
@@ -1162,7 +1185,7 @@ NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
           shm_buffer->width, shm_buffer->height,
           info.xHotspot, info.yHotspot);
 
-    /* Buffer stays alive — compositor holds a reference via wl_buffer.
-     * We intentionally do NOT free it here. */
+    /* Surface and buffer stay alive — compositor reads from them.
+     * We intentionally do NOT destroy them. */
     return STATUS_SUCCESS;
 }

@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="yetios_cursor_manager_v1">
   <interface name="yetios_cursor_manager_v1" version="1">
-    <description summary="Global cursor handoff">
-      One-shot: client sends cursor buffer, compositor uses it globally.
+    <description summary="Global cursor handoff from Wine to compositor">
+      Wine sends a wl_surface containing the Win32 cursor at boot.
+      The compositor copies the pixels and uses them forever.
     </description>
+
     <request name="set_cursor">
-      <arg name="buffer" type="object" interface="wl_buffer"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
       <arg name="hotspot_x" type="int"/>
       <arg name="hotspot_y" type="int"/>
     </request>
