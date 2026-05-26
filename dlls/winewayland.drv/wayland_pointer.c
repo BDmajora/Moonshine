@@ -24,6 +24,8 @@
 
 #include "config.h"
 
+#include "ntstatus.h"
+
 #include <linux/input.h>
 #undef SW_MAX /* Also defined in winuser.rh */
 #include <math.h>
