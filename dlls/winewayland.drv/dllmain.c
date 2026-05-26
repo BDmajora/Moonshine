@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define OEMRESOURCE
+
 #include "waylanddrv_dll.h"
 
 #include "ntuser.h"
@@ -110,6 +112,21 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
     /* Handle clipboard events in a dedicated thread, if needed. */
     if (!WAYLANDDRV_UNIX_CALL(init_clipboard, NULL))
         CloseHandle(CreateThread(NULL, 0, clipboard_thread, NULL, 0, &tid));
+
+    /* Send the Win32 default arrow cursor to the compositor at boot.
+     * The compositor uses this as the global system cursor from frame one.
+     * No pointer focus required — goes through yetios_cursor_manager_v1. */
+    {
+        HCURSOR arrow = LoadImageW(NULL, MAKEINTRESOURCEW(OCR_NORMAL),
+                                   IMAGE_CURSOR, 0, 0,
+                                   LR_SHARED | LR_DEFAULTSIZE);
+        if (arrow)
+        {
+            struct set_boot_cursor_params params;
+            params.cursor = (UINT_PTR)arrow;
+            WAYLANDDRV_UNIX_CALL(set_boot_cursor, &params);
+        }
+    }
 
     return TRUE;
 }

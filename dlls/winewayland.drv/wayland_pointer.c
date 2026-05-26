@@ -1094,3 +1094,75 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
 
     return TRUE;
 }
+
+/***********************************************************************
+ *           waylanddrv_unix_set_boot_cursor
+ *
+ * Called once from DllMain at process startup.  Receives the Win32
+ * default arrow HCURSOR, renders it to a wl_buffer, and sends it
+ * to the compositor via yetios_cursor_manager_v1.  No pointer focus
+ * required — the compositor uses this as the global system cursor.
+ */
+NTSTATUS waylanddrv_unix_set_boot_cursor(void *arg)
+{
+    struct set_boot_cursor_params *params = arg;
+    HCURSOR hcursor = (HCURSOR)(UINT_PTR)params->cursor;
+    ICONINFOEXW info = {0};
+    struct wayland_shm_buffer *shm_buffer = NULL;
+
+    if (!process_wayland.yetios_cursor_manager_v1)
+    {
+        TRACE("yetios_cursor_manager_v1 not available, skipping boot cursor\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    if (!hcursor)
+    {
+        ERR("No cursor handle provided\n");
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (!get_icon_info(hcursor, &info))
+    {
+        ERR("Failed to get icon info for boot cursor\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    if (info.hbmColor)
+    {
+        HDC hdc = NtGdiCreateCompatibleDC(0);
+        shm_buffer = wayland_shm_buffer_from_color_bitmaps(
+            hdc, info.hbmColor, info.hbmMask);
+        NtGdiDeleteObjectApp(hdc);
+    }
+    else
+    {
+        shm_buffer = create_mono_cursor_buffer(info.hbmMask);
+    }
+
+    if (info.hbmColor) NtGdiDeleteObjectApp(info.hbmColor);
+    if (info.hbmMask) NtGdiDeleteObjectApp(info.hbmMask);
+
+    if (!shm_buffer)
+    {
+        ERR("Failed to render boot cursor to shm buffer\n");
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    /* Send the cursor buffer to the compositor.  No enter serial,
+     * no pointer focus — the compositor applies it globally. */
+    yetios_cursor_manager_v1_set_cursor(
+        process_wayland.yetios_cursor_manager_v1,
+        shm_buffer->wl_buffer,
+        info.xHotspot, info.yHotspot);
+
+    wl_display_flush(process_wayland.wl_display);
+
+    TRACE("Boot cursor sent: %dx%d hotspot=(%d,%d)\n",
+          shm_buffer->width, shm_buffer->height,
+          info.xHotspot, info.yHotspot);
+
+    /* Buffer stays alive — compositor holds a reference via wl_buffer.
+     * We intentionally do NOT free it here. */
+    return STATUS_SUCCESS;
+}

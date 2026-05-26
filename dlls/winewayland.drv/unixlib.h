@@ -28,7 +28,13 @@ enum waylanddrv_unix_func
     waylanddrv_unix_func_init,
     waylanddrv_unix_func_read_events,
     waylanddrv_unix_func_init_clipboard,
+    waylanddrv_unix_func_set_boot_cursor,
     waylanddrv_unix_func_count,
+};
+
+struct set_boot_cursor_params
+{
+    UINT64 cursor; /* HCURSOR, 64-bit safe */
 };
 
 #endif /* __WINE_WAYLANDDRV_UNIXLIB_H */
