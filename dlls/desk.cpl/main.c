@@ -452,10 +452,11 @@ static INT_PTR CALLBACK adapter_dialog_proc(HWND hwnd, UINT msg,
             if (out)
             {
                 WCHAR wdesc[256];
+                unsigned int cw = 0, ch = 0, m;
+
                 MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
                 MultiByteToWideChar(CP_UTF8, 0, out->description, -1, wdesc, 256);
 
-                unsigned int cw = 0, ch = 0, m;
                 for (m = 0; m < out->num_modes; m++)
                     if (out->modes[m].current)
                     {
@@ -516,7 +517,7 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
 
         /* Monitor name. */
         {
-            WCHAR wdesc[256], wname[64];
+            WCHAR wdesc[256];
             MultiByteToWideChar(CP_UTF8, 0, out->description[0] ? out->description : out->name,
                                 -1, wdesc, 256);
             SetDlgItemTextW(hwnd, IDC_MONITOR_TYPE, wdesc);
@@ -582,9 +583,9 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
 
     case WM_COMMAND:
         if (LOWORD(wparam) == IDC_REFRESH_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         if (LOWORD(wparam) == IDC_VRR_CHECK)
-            PropSheet_Changed(GetParent(hwnd), hwnd);
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         return TRUE;
 
     case WM_NOTIFY:
@@ -734,15 +735,15 @@ static INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
         case IDC_OUTPUT_COMBO:
             if (HIWORD(wparam) == CBN_SELCHANGE)
             {
-                int idx = (int)SendDlgItemMessageW(hwnd, IDC_OUTPUT_COMBO,
-                                                   CB_GETCURSEL, 0, 0);
-                if (idx >= 0)
+                int idx2 = (int)SendDlgItemMessageW(hwnd, IDC_OUTPUT_COMBO,
+                                                    CB_GETCURSEL, 0, 0);
+                if (idx2 >= 0)
                     sel_output = (int)SendDlgItemMessageW(hwnd, IDC_OUTPUT_COMBO,
-                                                          CB_GETITEMDATA, idx, 0);
+                                                          CB_GETITEMDATA, idx2, 0);
                 populate_resolution_combo(hwnd);
                 populate_orientation_combo(hwnd);
                 InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 
@@ -751,19 +752,19 @@ static INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
             {
                 read_resolution_combo(hwnd);
                 InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 
         case IDC_ORIENTATION_COMBO:
             if (HIWORD(wparam) == CBN_SELCHANGE)
             {
-                int idx = (int)SendDlgItemMessageW(hwnd, IDC_ORIENTATION_COMBO,
-                                                   CB_GETCURSEL, 0, 0);
-                if (idx >= 0)
+                int idx2 = (int)SendDlgItemMessageW(hwnd, IDC_ORIENTATION_COMBO,
+                                                    CB_GETCURSEL, 0, 0);
+                if (idx2 >= 0)
                     staged_transform = (unsigned int)SendDlgItemMessageW(
-                        hwnd, IDC_ORIENTATION_COMBO, CB_GETITEMDATA, idx, 0);
-                PropSheet_Changed(GetParent(hwnd), hwnd);
+                        hwnd, IDC_ORIENTATION_COMBO, CB_GETITEMDATA, idx2, 0);
+                SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
             break;
 
