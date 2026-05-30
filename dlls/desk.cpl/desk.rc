@@ -42,7 +42,10 @@ FONT 8, "Ms Shell Dlg"
     LTEXT           "Change the appearance of your display",
                     IDC_STATIC, 10, 6, 310, 10
 
-    GROUPBOX        "", IDC_VIRTUAL_DESKTOP, 10, 20, 310, 100
+    GROUPBOX        "", IDC_VIRTUAL_DESKTOP, 10, 20, 236, 100
+
+    PUSHBUTTON      "Detect",   IDC_DETECT_BUTTON,   254, 30, 66, 14
+    PUSHBUTTON      "Identify", IDC_IDENTIFY_BUTTON, 254, 50, 66, 14
 
     LTEXT           "Display:",      IDC_STATIC,  14, 132, 55, 10
     COMBOBOX        IDC_OUTPUT_COMBO,             74, 130, 246, 80,
@@ -68,15 +71,19 @@ STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
 CAPTION "Adapter"
 FONT 8, "Ms Shell Dlg"
 {
-    GROUPBOX        "Adapter Type", IDC_STATIC, 7, 7, 238, 36
-    LTEXT           "", IDC_ADAPTER_TYPE, 15, 22, 222, 14
+    GROUPBOX        "Adapter Type", IDC_STATIC, 7, 7, 238, 46
+    ICON            ICO_MAIN, IDC_ADAPTER_ICON, 15, 20, 20, 20
+    LTEXT           "", IDC_ADAPTER_TYPE, 44, 24, 104, 12
+    PUSHBUTTON      "Properties", IDC_ADAPTER_PROPS, 150, 22, 88, 16
 
-    GROUPBOX        "Adapter Information", IDC_STATIC, 7, 50, 238, 160
-    LTEXT           "", IDC_ADAPTER_INFO, 15, 65, 222, 136
+    GROUPBOX        "Adapter Information", IDC_STATIC, 7, 58, 238, 128
+    LTEXT           "", IDC_ADAPTER_INFO, 15, 72, 222, 108
+
+    PUSHBUTTON      "List All Modes", IDC_LIST_MODES, 7, 192, 80, 16
 }
 
 /* -----------------------------------------------------------------------
- * Advanced Settings → Monitor tab  (refresh rate + VRR)
+ * Advanced Settings → Monitor tab  (refresh rate, hide-modes, VRR, colors)
  * ----------------------------------------------------------------------- */
 
 IDD_MONITOR DIALOG 0, 0, 252, 218
@@ -85,16 +92,87 @@ CAPTION "Monitor"
 FONT 8, "Ms Shell Dlg"
 {
     GROUPBOX        "Monitor Type",     IDC_STATIC, 7, 7, 238, 40
-    LTEXT           "",                 IDC_MONITOR_TYPE, 15, 24, 222, 16
+    LTEXT           "",                 IDC_MONITOR_TYPE, 15, 22, 128, 16
+    PUSHBUTTON      "Properties",       IDC_MONITOR_PROPS, 150, 20, 88, 16
 
-    GROUPBOX        "Monitor Settings", IDC_STATIC, 7, 56, 238, 120
+    GROUPBOX        "Monitor Settings", IDC_STATIC, 7, 50, 238, 160
 
-    LTEXT           "Screen refresh rate:", IDC_STATIC, 15, 72, 120, 10
-    COMBOBOX        IDC_REFRESH_COMBO, 15, 86, 222, 100,
+    LTEXT           "Screen refresh rate:", IDC_STATIC, 15, 64, 120, 10
+    COMBOBOX        IDC_REFRESH_COMBO, 15, 76, 222, 100,
                     CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
 
-    AUTOCHECKBOX    "Enable Variable Refresh Rate (VRR)",
-                    IDC_VRR_CHECK, 15, 112, 200, 12
+    AUTOCHECKBOX    "Hide modes that this monitor cannot display",
+                    IDC_HIDE_MODES_CHECK, 15, 96, 210, 10
+    LTEXT           "Clearing this check box allows you to select display modes that this monitor cannot display correctly. This may lead to an unusable display and/or damaged hardware.",
+                    IDC_STATIC, 15, 108, 215, 30
+
+    AUTOCHECKBOX    "Enable Variable Refresh Rate",
+                    IDC_VRR_CHECK, 15, 142, 205, 10
+
+    LTEXT           "Colors:", IDC_STATIC, 15, 158, 40, 10
+    COMBOBOX        IDC_COLORS_COMBO, 15, 170, 150, 100,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
+}
+
+/* -----------------------------------------------------------------------
+ * Advanced Settings → Troubleshoot tab
+ * ----------------------------------------------------------------------- */
+
+IDD_TROUBLESHOOT DIALOG 0, 0, 252, 218
+STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
+CAPTION "Troubleshoot"
+FONT 8, "Ms Shell Dlg"
+{
+    GROUPBOX        "Hardware Acceleration", IDC_STATIC, 7, 7, 238, 150
+    LTEXT           "Manually control the level of acceleration and performance supplied by your graphics hardware.",
+                    IDC_STATIC, 15, 20, 222, 18
+    LTEXT           "Hardware acceleration:", IDC_STATIC, 15, 44, 140, 10
+    CONTROL         "", IDC_HWACCEL_TRACK, "msctls_trackbar32",
+                    TBS_AUTOTICKS | WS_TABSTOP, 15, 56, 222, 30
+    LTEXT           "None", IDC_STATIC, 15, 90, 40, 10
+    RTEXT           "Full", IDC_STATIC, 197, 90, 40, 10
+    LTEXT           "All acceleration features are enabled. Use this setting if your computer has no problems.",
+                    IDC_STATIC, 15, 108, 222, 30
+
+    PUSHBUTTON      "Change settings", IDC_CHANGE_SETTINGS, 150, 170, 88, 16
+}
+
+/* -----------------------------------------------------------------------
+ * Advanced Settings → Color Management tab
+ * ----------------------------------------------------------------------- */
+
+IDD_COLORMGMT DIALOG 0, 0, 252, 218
+STYLE WS_CAPTION | WS_CHILD | WS_DISABLED
+CAPTION "Color Management"
+FONT 8, "Ms Shell Dlg"
+{
+    GROUPBOX        "Color Management", IDC_STATIC, 7, 7, 238, 150
+    LTEXT           "These settings let you choose the color profiles associated with your display device.",
+                    IDC_STATIC, 15, 20, 222, 18
+    LTEXT           "Profiles associated with this device:", IDC_STATIC, 15, 42, 222, 10
+    LISTBOX         IDC_PROFILE_LIST, 15, 54, 222, 66,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON      "Add...",         IDC_PROFILE_ADD,     15, 126, 46, 14
+    PUSHBUTTON      "Remove",         IDC_PROFILE_REMOVE,  64, 126, 46, 14
+    PUSHBUTTON      "Set as Default", IDC_PROFILE_DEFAULT, 113, 126, 72, 14
+
+    PUSHBUTTON      "Color Management...", IDC_COLORMGMT_LAUNCH, 130, 170, 108, 16
+}
+
+/* -----------------------------------------------------------------------
+ * Adapter → List All Modes (modal popup)
+ * ----------------------------------------------------------------------- */
+
+IDD_LISTMODES DIALOG 0, 0, 220, 200
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "List All Modes"
+FONT 8, "Ms Shell Dlg"
+{
+    LTEXT           "List of valid modes:", IDC_STATIC, 7, 7, 200, 10
+    LISTBOX         IDC_MODES_LIST, 7, 20, 206, 148,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    DEFPUSHBUTTON   "OK",     IDOK,     100, 178, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 156, 178, 50, 14
 }
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL

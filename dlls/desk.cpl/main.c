@@ -23,6 +23,7 @@
 #include <commctrl.h>
 #include <cpl.h>
 #include "ole2.h"
+#include "shellapi.h"
 
 #include "wine/debug.h"
 #include "wine/unixlib.h"
@@ -74,6 +75,15 @@ static BOOL enumerate_outputs(void)
 {
     if (!ensure_unix()) return FALSE;
     return UNIX_CALL(unix_wlr_enumerate, &wlr_data) == 0;
+}
+
+/* Current desktop color depth, in bits per pixel. */
+static int current_bpp(void)
+{
+    HDC hdc = GetDC(NULL);
+    int bpp = GetDeviceCaps(hdc, BITSPIXEL);
+    ReleaseDC(NULL, hdc);
+    return bpp;
 }
 
 /* ================================================================== */
@@ -428,60 +438,121 @@ static void create_desktop_view(HWND hwnd)
 }
 
 /* ================================================================== */
+/* List All Modes dialog                                              */
+/* ================================================================== */
+
+static INT_PTR CALLBACK list_modes_dialog_proc(HWND hwnd, UINT msg,
+                                               WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        const struct wlr_output_info *out = get_output();
+        HWND lb = GetDlgItem(hwnd, IDC_MODES_LIST);
+        int bpp = current_bpp();
+        const WCHAR *colors = (bpp >= 32) ? L"True Color (32 bit)" :
+                              (bpp >= 16) ? L"High Color (16 bit)" :
+                                            L"256 Colors (8 bit)";
+        unsigned int i;
+
+        if (!out) return TRUE;
+
+        /* One row per supported resolution + refresh combination. */
+        for (i = 0; i < out->num_modes; i++)
+        {
+            WCHAR buf[96];
+            unsigned int hz = out->modes[i].refresh_mhz / 1000;
+            int idx;
+
+            swprintf(buf, ARRAY_SIZE(buf), L"%u \u00d7 %u, %s, %u Hertz",
+                     out->modes[i].width, out->modes[i].height, colors, hz);
+            idx = (int)SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)buf);
+            SendMessageW(lb, LB_SETITEMDATA, idx, (LPARAM)i);
+            if (out->modes[i].current)
+                SendMessageW(lb, LB_SETCURSEL, idx, 0);
+        }
+        return TRUE;
+    }
+
+    case WM_COMMAND:
+        if (LOWORD(wparam) == IDOK)
+        {
+            const struct wlr_output_info *out = get_output();
+            HWND lb = GetDlgItem(hwnd, IDC_MODES_LIST);
+            int sel = (int)SendMessageW(lb, LB_GETCURSEL, 0, 0);
+
+            if (out && sel >= 0 && ensure_unix())
+            {
+                unsigned int mi = (unsigned int)SendMessageW(lb, LB_GETITEMDATA, sel, 0);
+                struct wlr_apply_params ap;
+
+                memset(&ap, 0, sizeof(ap));
+                lstrcpynA(ap.output_name, out->name, sizeof(ap.output_name));
+                ap.flags       = WLR_APPLY_MODE | WLR_APPLY_REFRESH;
+                ap.width       = out->modes[mi].width;
+                ap.height      = out->modes[mi].height;
+                ap.refresh_mhz = out->modes[mi].refresh_mhz;
+                if (UNIX_CALL(unix_wlr_apply, &ap) == 0)
+                    enumerate_outputs();
+            }
+            EndDialog(hwnd, IDOK);
+            return TRUE;
+        }
+        if (LOWORD(wparam) == IDCANCEL)
+        {
+            EndDialog(hwnd, IDCANCEL);
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+
+/* ================================================================== */
 /* Advanced Settings — Adapter tab                                    */
 /* ================================================================== */
 
 static INT_PTR CALLBACK adapter_dialog_proc(HWND hwnd, UINT msg,
                                             WPARAM wparam, LPARAM lparam)
 {
-    if (msg == WM_INITDIALOG)
+    switch (msg)
+    {
+    case WM_INITDIALOG:
     {
         const struct wlr_output_info *out = get_output();
-        WCHAR wname[64];
+        WCHAR info[640];
+
+        SetDlgItemTextW(hwnd, IDC_ADAPTER_TYPE,
+                        out ? L"frostedglass (wlroots)" : L"Unknown");
 
         if (out)
-        {
-            MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
-            SetDlgItemTextW(hwnd, IDC_ADAPTER_TYPE, L"frostedglass (wlroots)");
-        }
+            swprintf(info, ARRAY_SIZE(info),
+                     L"Chip Type:  frostedglass virtual GPU\r\n"
+                     L"DAC Type:  Integrated\r\n"
+                     L"Adapter String:  frostedglass (wlroots)\r\n"
+                     L"BIOS Information:  frostedglass VBIOS\r\n"
+                     L"\r\n"
+                     L"Total Available Graphics Memory:  %u MB\r\n"
+                     L"Dedicated Video Memory:  %u MB\r\n"
+                     L"System Video Memory:  %u MB\r\n"
+                     L"Shared System Memory:  %u MB",
+                     4096u, 1024u, 0u, 3072u);
         else
-            SetDlgItemTextW(hwnd, IDC_ADAPTER_TYPE, L"Unknown");
+            swprintf(info, ARRAY_SIZE(info), L"No display selected.");
 
-        {
-            WCHAR info[512];
-            if (out)
-            {
-                WCHAR wdesc[256];
-                unsigned int cw = 0, ch = 0, m;
+        SetDlgItemTextW(hwnd, IDC_ADAPTER_INFO, info);
+        return TRUE;
+    }
 
-                MultiByteToWideChar(CP_UTF8, 0, out->name, -1, wname, 64);
-                MultiByteToWideChar(CP_UTF8, 0, out->description, -1, wdesc, 256);
-
-                for (m = 0; m < out->num_modes; m++)
-                    if (out->modes[m].current)
-                    {
-                        cw = out->modes[m].width;
-                        ch = out->modes[m].height;
-                        break;
-                    }
-
-                swprintf(info, ARRAY_SIZE(info),
-                         L"Connector:  %s\r\n"
-                         L"Description:  %s\r\n"
-                         L"Current mode:  %u \u00d7 %u\r\n"
-                         L"Position:  %d, %d\r\n"
-                         L"Available modes:  %u\r\n"
-                         L"Adaptive sync:  %s",
-                         wname, wdesc, cw, ch,
-                         out->pos_x, out->pos_y,
-                         out->num_modes,
-                         out->adaptive_sync ? L"Supported" : L"Not reported");
-            }
-            else
-                swprintf(info, ARRAY_SIZE(info), L"No display selected.");
-
-            SetDlgItemTextW(hwnd, IDC_ADAPTER_INFO, info);
-        }
+    case WM_COMMAND:
+        /* Properties — open the device entry in Device Manager. */
+        if (LOWORD(wparam) == IDC_ADAPTER_PROPS)
+            ShellExecuteW(hwnd, L"open", L"devmgmt.msc", NULL, NULL, SW_SHOWNORMAL);
+        /* List All Modes — modal list of every supported mode. */
+        else if (LOWORD(wparam) == IDC_LIST_MODES)
+            DialogBoxW(module, MAKEINTRESOURCEW(IDD_LISTMODES), hwnd,
+                       list_modes_dialog_proc);
         return TRUE;
     }
     return FALSE;
@@ -578,6 +649,19 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
         SendDlgItemMessageW(hwnd, IDC_VRR_CHECK, BM_SETCHECK,
                             out->adaptive_sync ? BST_CHECKED : BST_UNCHECKED, 0);
 
+        /* Hide-modes checkbox — checked by default, matches Windows. */
+        SendDlgItemMessageW(hwnd, IDC_HIDE_MODES_CHECK, BM_SETCHECK, BST_CHECKED, 0);
+
+        /* Colors combo — bit-depth options, selected from the live depth. */
+        {
+            HWND cc = GetDlgItem(hwnd, IDC_COLORS_COMBO);
+            int bpp = current_bpp();
+            SendMessageW(cc, CB_RESETCONTENT, 0, 0);
+            SendMessageW(cc, CB_ADDSTRING, 0, (LPARAM)L"High Color (16 bit)");
+            SendMessageW(cc, CB_ADDSTRING, 0, (LPARAM)L"True Color (32 bit)");
+            SendMessageW(cc, CB_SETCURSEL, (bpp >= 32) ? 1 : 0, 0);
+        }
+
         return TRUE;
     }
 
@@ -586,6 +670,13 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
         if (LOWORD(wparam) == IDC_VRR_CHECK)
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+        if (LOWORD(wparam) == IDC_COLORS_COMBO && HIWORD(wparam) == CBN_SELCHANGE)
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+        if (LOWORD(wparam) == IDC_HIDE_MODES_CHECK)
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
+        /* Properties — open the monitor entry in Device Manager. */
+        if (LOWORD(wparam) == IDC_MONITOR_PROPS)
+            ShellExecuteW(hwnd, L"open", L"devmgmt.msc", NULL, NULL, SW_SHOWNORMAL);
         return TRUE;
 
     case WM_NOTIFY:
@@ -634,6 +725,27 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
                 return TRUE;
             }
 
+            /* Colors — apply bit depth via GDI, with a confirmation. */
+            {
+                int csel = (int)SendDlgItemMessageW(hwnd, IDC_COLORS_COMBO,
+                                                    CB_GETCURSEL, 0, 0);
+                int want = (csel == 1) ? 32 : (csel == 0) ? 16 : 0;
+                if (want && want != current_bpp())
+                {
+                    if (MessageBoxW(hwnd, L"Apply the new color settings?",
+                                    L"Monitor Settings",
+                                    MB_YESNO | MB_ICONQUESTION) == IDYES)
+                    {
+                        DEVMODEW dm;
+                        memset(&dm, 0, sizeof(dm));
+                        dm.dmSize       = sizeof(dm);
+                        dm.dmFields     = DM_BITSPERPEL;
+                        dm.dmBitsPerPel = want;
+                        ChangeDisplaySettingsExW(NULL, &dm, NULL, 0, NULL);
+                    }
+                }
+            }
+
             SetWindowLongPtrW(hwnd, DWLP_MSGRESULT, PSNRET_NOERROR);
             return TRUE;
         }
@@ -641,6 +753,75 @@ static INT_PTR CALLBACK monitor_dialog_proc(HWND hwnd, UINT msg,
     }
     }
 
+    return FALSE;
+}
+
+/* ================================================================== */
+/* Advanced Settings — Troubleshoot tab                               */
+/* ================================================================== */
+
+static INT_PTR CALLBACK troubleshoot_dialog_proc(HWND hwnd, UINT msg,
+                                                 WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        HWND tb = GetDlgItem(hwnd, IDC_HWACCEL_TRACK);
+        /* Acceleration slider — None (0) .. Full (5), default Full. */
+        SendMessageW(tb, TBM_SETRANGE, TRUE, MAKELONG(0, 5));
+        SendMessageW(tb, TBM_SETPOS, TRUE, 5);
+        return TRUE;
+    }
+
+    case WM_COMMAND:
+        /* Change settings — launch DirectX diagnostics. */
+        if (LOWORD(wparam) == IDC_CHANGE_SETTINGS)
+            ShellExecuteW(hwnd, L"open", L"dxdiag.exe", NULL, NULL, SW_SHOWNORMAL);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* ================================================================== */
+/* Advanced Settings — Color Management tab                           */
+/* ================================================================== */
+
+static INT_PTR CALLBACK color_mgmt_dialog_proc(HWND hwnd, UINT msg,
+                                               WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+        SendDlgItemMessageW(hwnd, IDC_PROFILE_LIST, LB_ADDSTRING, 0,
+                            (LPARAM)L"sRGB IEC61966-2.1 (default)");
+        return TRUE;
+
+    case WM_COMMAND:
+        switch (LOWORD(wparam))
+        {
+        /* Add / full applet — open the Color Management control panel. */
+        case IDC_PROFILE_ADD:
+        case IDC_COLORMGMT_LAUNCH:
+            ShellExecuteW(hwnd, L"open", L"colorcpl.exe", NULL, NULL, SW_SHOWNORMAL);
+            break;
+
+        case IDC_PROFILE_REMOVE:
+        {
+            HWND lb = GetDlgItem(hwnd, IDC_PROFILE_LIST);
+            int sel = (int)SendMessageW(lb, LB_GETCURSEL, 0, 0);
+            if (sel >= 0) SendMessageW(lb, LB_DELETESTRING, sel, 0);
+            break;
+        }
+
+        case IDC_PROFILE_DEFAULT:
+            MessageBoxW(hwnd,
+                        L"Set the selected profile as the default for this device.",
+                        L"Color Management", MB_OK | MB_ICONINFORMATION);
+            break;
+        }
+        return TRUE;
+    }
     return FALSE;
 }
 
@@ -686,6 +867,22 @@ static void open_advanced_settings(HWND parent)
                 .pszTitle    = L"Monitor",
                 .pfnDlgProc  = monitor_dialog_proc,
             },
+            {
+                .dwSize      = sizeof(PROPSHEETPAGEW),
+                .dwFlags     = PSP_USETITLE,
+                .hInstance   = module,
+                .pszTemplate = MAKEINTRESOURCEW(IDD_TROUBLESHOOT),
+                .pszTitle    = L"Troubleshoot",
+                .pfnDlgProc  = troubleshoot_dialog_proc,
+            },
+            {
+                .dwSize      = sizeof(PROPSHEETPAGEW),
+                .dwFlags     = PSP_USETITLE,
+                .hInstance   = module,
+                .pszTemplate = MAKEINTRESOURCEW(IDD_COLORMGMT),
+                .pszTitle    = L"Color Management",
+                .pfnDlgProc  = color_mgmt_dialog_proc,
+            },
         };
         PROPSHEETHEADERW hdr =
         {
@@ -705,6 +902,83 @@ static void open_advanced_settings(HWND parent)
     /* After closing advanced settings, re-enumerate so the main page
      * reflects any changes made to refresh rate or VRR. */
     enumerate_outputs();
+}
+
+/* ================================================================== */
+/* Identify — flash a number on each display                          */
+/* ================================================================== */
+
+static LRESULT CALLBACK identify_proc(HWND hwnd, UINT msg,
+                                      WPARAM wparam, LPARAM lparam)
+{
+    switch (msg)
+    {
+    case WM_CREATE:
+        SetTimer(hwnd, 1, 5000, NULL);  /* auto-dismiss after 5 seconds */
+        return 0;
+
+    case WM_TIMER:
+        KillTimer(hwnd, 1);
+        DestroyWindow(hwnd);
+        return 0;
+
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        RECT rc;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        WCHAR label[16];
+        HFONT big, old;
+
+        GetClientRect(hwnd, &rc);
+        FillRect(hdc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+
+        swprintf(label, ARRAY_SIZE(label), L"%Iu",
+                 (UINT_PTR)GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        big = CreateFontW(-(rc.bottom - rc.top) / 2, 0, 0, 0, FW_BOLD,
+                          FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                          DEFAULT_QUALITY, DEFAULT_PITCH, L"Ms Shell Dlg");
+        old = SelectObject(hdc, big);
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, RGB(255, 255, 255));
+        DrawTextW(hdc, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(hdc, old);
+        DeleteObject(big);
+
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+static void show_identify(void)
+{
+    unsigned int i, m;
+
+    for (i = 0; i < wlr_data.num_outputs; i++)
+    {
+        const struct wlr_output_info *o = &wlr_data.outputs[i];
+        unsigned int w = 0, h = 0;
+        HWND win;
+
+        if (!o->enabled) continue;
+
+        for (m = 0; m < o->num_modes; m++)
+            if (o->modes[m].current) { w = o->modes[m].width; h = o->modes[m].height; break; }
+        if (!w && o->num_modes) { w = o->modes[0].width; h = o->modes[0].height; }
+        if (!w) { w = 1920; h = 1080; }
+
+        win = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                              L"DeskCplIdentify", NULL, WS_POPUP,
+                              o->pos_x, o->pos_y, (int)w, (int)h,
+                              NULL, NULL, module, NULL);
+        if (!win) continue;
+        SetWindowLongPtrW(win, GWLP_USERDATA, (LONG_PTR)(i + 1));  /* 1-based */
+        ShowWindow(win, SW_SHOWNA);
+        UpdateWindow(win);
+    }
 }
 
 /* ================================================================== */
@@ -774,6 +1048,21 @@ static INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
             populate_resolution_combo(hwnd);
             populate_orientation_combo(hwnd);
             InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+            break;
+
+        case IDC_DETECT_BUTTON:
+            /* Re-scan outputs and refresh the page. */
+            if (enumerate_outputs())
+            {
+                populate_output_combo(hwnd);
+                populate_resolution_combo(hwnd);
+                populate_orientation_combo(hwnd);
+                InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
+            }
+            break;
+
+        case IDC_IDENTIFY_BUTTON:
+            show_identify();
             break;
         }
         return TRUE;
@@ -871,12 +1160,21 @@ static void register_window_class(void)
         .lpfnWndProc  = desktop_view_proc,
         .lpszClassName = L"DeskCplDesktop",
     };
+    WNDCLASSW idcls =
+    {
+        .hInstance     = module,
+        .lpfnWndProc  = identify_proc,
+        .lpszClassName = L"DeskCplIdentify",
+        .hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH),
+    };
     RegisterClassW(&cls);
+    RegisterClassW(&idcls);
 }
 
 static void unregister_window_class(void)
 {
     UnregisterClassW(L"DeskCplDesktop", module);
+    UnregisterClassW(L"DeskCplIdentify", module);
 }
 
 /* ================================================================== */

@@ -1,6 +1,6 @@
 MODULE    = desk.cpl
 UNIXLIB   = desk.so
-IMPORTS   = ntdll advapi32 ole32 comctl32 user32 gdi32
+IMPORTS   = ntdll advapi32 ole32 comctl32 user32 gdi32 shell32
 
 SOURCES = \
 	desk.rc \
