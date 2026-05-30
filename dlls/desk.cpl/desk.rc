@@ -59,6 +59,9 @@ FONT 8, "Ms Shell Dlg"
     COMBOBOX        IDC_ORIENTATION_COMBO,        74, 170, 246, 80,
                     CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL
 
+    AUTOCHECKBOX    "Make this my main display",
+                    IDC_MAIN_DISPLAY_CHECK, 14, 198, 180, 10
+
     PUSHBUTTON      "Advanced settings", IDC_ADVANCED_BUTTON, 226, 196, 94, 14
 }
 

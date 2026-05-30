@@ -46,6 +46,7 @@
 #define IDC_ADVANCED_BUTTON         2004
 #define IDC_DETECT_BUTTON           2005
 #define IDC_IDENTIFY_BUTTON         2006
+#define IDC_MAIN_DISPLAY_CHECK      2007
 
 /* adapter tab controls */
 #define IDC_ADAPTER_TYPE            2100

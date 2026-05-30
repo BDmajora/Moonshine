@@ -961,6 +961,7 @@ static void show_identify(void)
     {
         const struct wlr_output_info *o = &wlr_data.outputs[i];
         unsigned int w = 0, h = 0;
+        int side, margin, x, y;
         HWND win;
 
         if (!o->enabled) continue;
@@ -970,9 +971,15 @@ static void show_identify(void)
         if (!w && o->num_modes) { w = o->modes[0].width; h = o->modes[0].height; }
         if (!w) { w = 1920; h = 1080; }
 
+        /* Small square badge in the lower-left corner, Windows-style. */
+        side   = (int)((w < h ? w : h) / 4);
+        margin = side / 4;
+        x = o->pos_x + margin;
+        y = o->pos_y + (int)h - side - margin;
+
         win = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                               L"DeskCplIdentify", NULL, WS_POPUP,
-                              o->pos_x, o->pos_y, (int)w, (int)h,
+                              x, y, side, side,
                               NULL, NULL, module, NULL);
         if (!win) continue;
         SetWindowLongPtrW(win, GWLP_USERDATA, (LONG_PTR)(i + 1));  /* 1-based */
@@ -1063,6 +1070,11 @@ static INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
 
         case IDC_IDENTIFY_BUTTON:
             show_identify();
+            break;
+
+        case IDC_MAIN_DISPLAY_CHECK:
+            /* stub: set selected output as primary — implemented later. */
+            SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }
         return TRUE;
