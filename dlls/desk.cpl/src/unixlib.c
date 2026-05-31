@@ -30,7 +30,7 @@
 #include "winternl.h"
 #include "wine/unixlib.h"
 
-#include "unixlib.h"
+#include "../include/unixlib.h"
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
