@@ -1,9 +1,18 @@
 MODULE    = desk.cpl
 UNIXLIB   = desk.so
 IMPORTS   = ntdll advapi32 ole32 comctl32 user32 gdi32 shell32
+EXTRAINCL = -I$(srcdir)/include
 
 SOURCES = \
 	desk.rc \
 	desk.svg \
-	main.c \
-	unixlib.c
+	src/applet.c \
+	src/display_state.c \
+	src/combos.c \
+	src/main_page.c \
+	src/preview.c \
+	src/identify.c \
+	src/adapter.c \
+	src/monitor.c \
+	src/advanced.c \
+	src/unixlib.c
