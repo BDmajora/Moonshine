@@ -1096,10 +1096,45 @@ static void do_show_systray(void)
     ReleaseDC( 0, hdc );
     DeleteObject( font );
 
-    tray_width = GetSystemMetrics( SM_CXSCREEN );
+    /*
+     * Source the bar width from our own current surface size, not from
+     * GetSystemMetrics( SM_CXSCREEN ).
+     *
+     * The compositor owns the taskbar's width: on every resolution /
+     * output change it re-pins us with a fresh xdg configure (see
+     * fg_taskbar.c:position_taskbar -> wlr_xdg_toplevel_set_size), which
+     * Wine turns into a window resize and a WM_SIZE that re-enters this
+     * function.  By that point our window already has the new width.
+     *
+     * The old code read SM_CXSCREEN here and then SetWindowPos'd the bar
+     * back to it.  In a virtual-desktop session that metric can still hold
+     * the boot resolution at relayout time, so the bar was being snapped
+     * straight back to its startup width every time — the resize you saw
+     * never stuck.  Reading the live client width instead honours whatever
+     * the compositor last configured, and everything downstream
+     * (clock position, sync_taskbar_buttons, get_icon_pos) keys off
+     * tray_width, so it all follows automatically.
+     *
+     * SM_CXSCREEN remains the correct fallback for the very first layout,
+     * before any configure has arrived.
+     */
+    {
+        RECT client;
+        GetClientRect( tray_window, &client );
+        tray_width = client.right - client.left;
+        if (tray_width <= 0)
+            tray_width = GetSystemMetrics( SM_CXSCREEN );
+    }
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
 
+    /*
+     * Width here matches what the compositor already gave us, so this is a
+     * no-op for size and simply re-asserts the bottom-edge position and
+     * height.  The compositor also fixes our on-screen position via the
+     * scene graph, but keeping the Win32 rect correct keeps Wine's work
+     * area sane for maximised apps.
+     */
     SetWindowPos( tray_window, 0, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
                   tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
 
