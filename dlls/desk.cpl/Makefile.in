@@ -10,6 +10,7 @@ SOURCES = \
 	src/display_state.c \
 	src/combos.c \
 	src/main_page.c \
+	src/primary.c \
 	src/preview.c \
 	src/identify.c \
 	src/adapter.c \

@@ -1138,6 +1138,27 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         else do_show_systray();
         break;
 
+    case WM_SIZE:
+        /* The tray surface was resized.  This happens on a WM_DISPLAYCHANGE
+         * (handled above), but also when the compositor reconfigures us after
+         * a resolution or main-monitor change — which arrives here as WM_SIZE,
+         * not WM_DISPLAYCHANGE.  Re-run the full layout so the bar width, clock
+         * position and task buttons are recomputed exactly as they are at
+         * startup.  Gated on enable_taskbar so we stay clear of the standalone
+         * systray show/hide logic, and guarded against the re-entrancy from
+         * do_show_systray()'s own SetWindowPos. */
+        if (enable_taskbar)
+        {
+            static BOOL in_recalc;
+            if (!in_recalc)
+            {
+                in_recalc = TRUE;
+                do_show_systray();
+                in_recalc = FALSE;
+            }
+        }
+        break;
+
     case WM_WINDOWPOSCHANGING:
     {
         WINDOWPOS *p = (WINDOWPOS *)lparam;

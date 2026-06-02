@@ -344,6 +344,10 @@ static NTSTATUS wlr_apply(void *args)
                         " --adaptive-sync %s",
                         p->adaptive_sync ? "enabled" : "disabled");
 
+    if (p->flags & WLR_APPLY_POS)
+        pos += snprintf(cmd + pos, sizeof(cmd) - pos,
+                        " --pos %d,%d", p->pos_x, p->pos_y);
+
     /* silence stderr */
     snprintf(cmd + pos, sizeof(cmd) - pos, " 2>/dev/null");
 

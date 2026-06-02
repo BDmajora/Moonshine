@@ -7,15 +7,34 @@
 #include "identify.h"
 #include "advanced.h"
 #include "display_state.h"
+#include "primary.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(deskcpl);
+
+/* Reflect the selected output's primary state in the checkbox.  Matching
+ * Windows, the box is ticked and disabled when the selection is already the
+ * primary display (you can't un-set a primary — you promote a different one),
+ * and is only enabled when promoting makes sense (more than one output). */
+static void update_main_display_check(HWND hwnd)
+{
+    const struct wlr_output_info *out = get_output();
+    BOOL primary = output_is_primary(out);
+
+    CheckDlgButton(hwnd, IDC_MAIN_DISPLAY_CHECK,
+                   primary ? BST_CHECKED : BST_UNCHECKED);
+    EnableWindow(GetDlgItem(hwnd, IDC_MAIN_DISPLAY_CHECK),
+                 !primary && wlr_data.num_outputs > 1);
+}
 
 static BOOL apply_main_settings(HWND hwnd)
 {
     const struct wlr_output_info *out = get_output();
     struct wlr_apply_params ap;
+    BOOL want_primary;
 
     if (!out) return FALSE;
+
+    want_primary = (IsDlgButtonChecked(hwnd, IDC_MAIN_DISPLAY_CHECK) == BST_CHECKED);
 
     memset(&ap, 0, sizeof(ap));
     lstrcpynA(ap.output_name, out->name, sizeof(ap.output_name));
@@ -35,11 +54,19 @@ static BOOL apply_main_settings(HWND hwnd)
         return FALSE;
     }
 
+    /* Promote to primary if requested and not already primary.  Re-enumerate
+     * first so we re-anchor from the live positions. */
+    enumerate_outputs();
+    out = get_output();
+    if (want_primary && !output_is_primary(out))
+        make_output_primary(out);
+
     /* Re-enumerate so everything is consistent. */
     enumerate_outputs();
     populate_output_combo(hwnd);
     populate_resolution_combo(hwnd);
     populate_orientation_combo(hwnd);
+    update_main_display_check(hwnd);
     InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
     return TRUE;
 }
@@ -58,6 +85,7 @@ INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
             populate_output_combo(hwnd);
             populate_resolution_combo(hwnd);
             populate_orientation_combo(hwnd);
+            update_main_display_check(hwnd);
         }
         create_desktop_view(hwnd);
         return TRUE;
@@ -75,6 +103,7 @@ INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
                                                           CB_GETITEMDATA, idx2, 0);
                 populate_resolution_combo(hwnd);
                 populate_orientation_combo(hwnd);
+                update_main_display_check(hwnd);
                 InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
                 SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             }
@@ -116,6 +145,7 @@ INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
                 populate_output_combo(hwnd);
                 populate_resolution_combo(hwnd);
                 populate_orientation_combo(hwnd);
+                update_main_display_check(hwnd);
                 InvalidateRect(GetDlgItem(hwnd, IDC_VIRTUAL_DESKTOP), NULL, TRUE);
             }
             break;
@@ -125,7 +155,8 @@ INT_PTR CALLBACK desktop_dialog_proc(HWND hwnd, UINT msg,
             break;
 
         case IDC_MAIN_DISPLAY_CHECK:
-            /* stub: set selected output as primary — implemented later. */
+            /* Ticking the box stages the change; it is applied on Apply/OK
+             * (PSN_APPLY -> apply_main_settings -> make_output_primary). */
             SendMessageW(GetParent(hwnd), PSM_CHANGED, (WPARAM)hwnd, 0);
             break;
         }

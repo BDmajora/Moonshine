@@ -35,6 +35,7 @@ enum desk_unix_funcs
 #define WLR_APPLY_REFRESH     0x02   /* refresh_mhz                         */
 #define WLR_APPLY_TRANSFORM   0x04   /* transform                           */
 #define WLR_APPLY_VRR         0x08   /* adaptive_sync                       */
+#define WLR_APPLY_POS         0x10   /* pos_x + pos_y (layout position)     */
 
 /* data shared between PE and Unix sides ---------------------------------- */
 
@@ -75,6 +76,8 @@ struct wlr_apply_params
     unsigned int refresh_mhz;
     unsigned int transform;      /* WLR_TRANSFORM_*                        */
     int          adaptive_sync;  /* 0 = disable, 1 = enable                */
+    int          pos_x;          /* layout position (WLR_APPLY_POS)        */
+    int          pos_y;
 };
 
 #endif /* DESK_UNIXLIB_H */
