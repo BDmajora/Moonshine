@@ -123,6 +123,12 @@ static BOOL no_tray_items; /* hide the systray and all systray icons */
 
 static int icon_cx, icon_cy, tray_width, tray_height;
 static int start_button_width, taskbar_button_width;
+/* Latest screen size as reported by WM_DISPLAYCHANGE (0 until the first one).
+ * Preferred over GetSystemMetrics( SM_CXSCREEN/SM_CYSCREEN ) when laying out
+ * the bar: on a virtual-desktop session those metrics can still hold the boot
+ * resolution at relayout time, whereas the WM_DISPLAYCHANGE payload is exactly
+ * what win32u just broadcast for the new mode. */
+static int screen_width, screen_height;
 static WCHAR start_label[50];
 
 static struct icon *balloon_icon;
@@ -1119,14 +1125,12 @@ static void do_show_systray(void)
      * before any configure has arrived.
      */
     {
-        /* Authoritative once the display mode has been resized to match the
-         * compositor output (desk.cpl applies that on a resolution change, so
-         * SM_CXSCREEN is current here).  The SetWindowPos below then resizes
-         * our own HWND to it, and Wine reports the new size to the compositor
-         * — the direction the driver honours.  Compositor-driven configures
-         * for a plain WS_POPUP are dropped, so reading the client rect alone
-         * left us stuck at the boot width. */
-        tray_width = GetSystemMetrics( SM_CXSCREEN );
+        /* Prefer the size carried by the last WM_DISPLAYCHANGE: it is correct
+         * even on the live (wlr-randr) path, where SM_CXSCREEN has not yet
+         * caught up.  Fall back to the metric for the very first layout (before
+         * any change has arrived), then to the live client width as a last
+         * resort. */
+        tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
         if (tray_width <= 0)
         {
             RECT client;
@@ -1142,10 +1146,15 @@ static void do_show_systray(void)
      * no-op for size and simply re-asserts the bottom-edge position and
      * height.  The compositor also fixes our on-screen position via the
      * scene graph, but keeping the Win32 rect correct keeps Wine's work
-     * area sane for maximised apps.
+     * area sane for maximised apps.  The y-origin is taken from the same
+     * cached screen height (not SM_CYSCREEN) so the rect is right on the
+     * live path too, not only after desk.cpl runs ChangeDisplaySettings.
      */
-    SetWindowPos( tray_window, 0, 0, GetSystemMetrics( SM_CYSCREEN ) - tray_height,
-                  tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
+    {
+        int screen_cy = screen_height > 0 ? screen_height : GetSystemMetrics( SM_CYSCREEN );
+        SetWindowPos( tray_window, 0, 0, screen_cy - tray_height,
+                      tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
+    }
 
     /* Reposition the clock window relative to the tray icons */
     if (hwnd_clock)
@@ -1177,6 +1186,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         return handle_incoming((HWND)wparam, (COPYDATASTRUCT *)lparam);
 
     case WM_DISPLAYCHANGE:
+        /* lParam carries the authoritative new resolution: LOWORD = width,
+         * HIWORD = height.  Cache it so do_show_systray() sizes and positions
+         * the bar from the value just broadcast, rather than re-reading
+         * SM_CXSCREEN/SM_CYSCREEN, which may still hold the boot resolution. */
+        screen_width  = LOWORD( lparam );
+        screen_height = HIWORD( lparam );
         /* As the desktop shell, always re-fit to the new screen size — never
          * hide.  (show_systray is FALSE when enable_taskbar is set, so the
          * generic path below would otherwise hide the bar.) */
