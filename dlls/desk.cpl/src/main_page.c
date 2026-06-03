@@ -54,6 +54,20 @@ static BOOL apply_main_settings(HWND hwnd)
         return FALSE;
     }
 
+    /* Match the Wine display mode to the new compositor output.  This is what
+     * makes SM_CXSCREEN update and a real WM_DISPLAYCHANGE get broadcast, so
+     * the taskbar and desktop refit.  Without it the display mode keeps its
+     * boot size and the shell never learns the resolution changed. */
+    {
+        DEVMODEW dm;
+        memset(&dm, 0, sizeof(dm));
+        dm.dmSize       = sizeof(dm);
+        dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT;
+        dm.dmPelsWidth  = staged_w;
+        dm.dmPelsHeight = staged_h;
+        ChangeDisplaySettingsExW(NULL, &dm, NULL, 0, NULL);
+    }
+
     /* Promote to primary if requested and not already primary.  Re-enumerate
      * first so we re-anchor from the live positions. */
     enumerate_outputs();

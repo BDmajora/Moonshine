@@ -1119,11 +1119,20 @@ static void do_show_systray(void)
      * before any configure has arrived.
      */
     {
-        RECT client;
-        GetClientRect( tray_window, &client );
-        tray_width = client.right - client.left;
+        /* Authoritative once the display mode has been resized to match the
+         * compositor output (desk.cpl applies that on a resolution change, so
+         * SM_CXSCREEN is current here).  The SetWindowPos below then resizes
+         * our own HWND to it, and Wine reports the new size to the compositor
+         * — the direction the driver honours.  Compositor-driven configures
+         * for a plain WS_POPUP are dropped, so reading the client rect alone
+         * left us stuck at the boot width. */
+        tray_width = GetSystemMetrics( SM_CXSCREEN );
         if (tray_width <= 0)
-            tray_width = GetSystemMetrics( SM_CXSCREEN );
+        {
+            RECT client;
+            GetClientRect( tray_window, &client );
+            tray_width = client.right - client.left;
+        }
     }
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
@@ -1168,8 +1177,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         return handle_incoming((HWND)wparam, (COPYDATASTRUCT *)lparam);
 
     case WM_DISPLAYCHANGE:
+        /* As the desktop shell, always re-fit to the new screen size — never
+         * hide.  (show_systray is FALSE when enable_taskbar is set, so the
+         * generic path below would otherwise hide the bar.) */
+        if (enable_taskbar) { do_show_systray(); break; }
         if (!show_systray) do_hide_systray();
-        else if (!nb_displayed && !enable_taskbar) do_hide_systray();
+        else if (!nb_displayed) do_hide_systray();
         else do_show_systray();
         break;
 

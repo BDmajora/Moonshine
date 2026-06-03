@@ -830,6 +830,19 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             SystemParametersInfoW( SPI_SETDESKWALLPAPER, 0, NULL, FALSE );
         return 0;
 
+    case WM_DISPLAYCHANGE:
+        /* Resolution changed: refit the desktop window to the new virtual
+         * screen and recompute the launcher grid.  The taskbar refits itself
+         * via its own WM_DISPLAYCHANGE handler in systray.c. */
+        SetWindowPos( hwnd, 0,
+                      GetSystemMetrics(SM_XVIRTUALSCREEN),  GetSystemMetrics(SM_YVIRTUALSCREEN),
+                      GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                      SWP_NOZORDER | SWP_NOACTIVATE );
+        desktop_width = GetSystemMetrics( SM_CXSCREEN );
+        if (launcher_size > 0) launchers_per_row = max( 1, desktop_width / launcher_size );
+        InvalidateRect( hwnd, NULL, TRUE );
+        return 0;
+
     case WM_PARENTNOTIFY:
         handle_parent_notify( (HWND)lp, wp );
         return 0;
