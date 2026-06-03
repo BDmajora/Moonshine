@@ -607,6 +607,48 @@ static void wayland_configure_window(HWND hwnd)
 }
 
 /**********************************************************************
+ *           wayland_resize_virtual_desktop
+ *
+ * After the host output mode changes, UpdateDisplayDevices refreshes the
+ * monitor *behind* a DF_WINE_VIRTUAL_DESKTOP, but win32u keeps the virtual
+ * screen at its fixed size — so SM_CXSCREEN never moves and no WM_DISPLAYCHANGE
+ * is broadcast, and the shell (taskbar/desktop) never refits.  Resize the
+ * virtual desktop to follow the primary output.  This is a no-op when the size
+ * already matches (rootless, or steady state), so it neither recurses nor
+ * churns: it only broadcasts WM_DISPLAYCHANGE on a real change.
+ */
+static void wayland_resize_virtual_desktop(void)
+{
+    struct wayland_output *output, *primary = NULL;
+    DEVMODEW dm = {.dmSize = sizeof(dm)};
+    int w = 0, h = 0;
+
+    pthread_mutex_lock(&process_wayland.output_mutex);
+    wl_list_for_each(output, &process_wayland.output_list, link)
+    {
+        if (!output->current.current_mode) continue;
+        /* Prefer the output anchored at the layout origin (the primary);
+         * fall back to the first output with a mode. */
+        if (!primary ||
+            (output->current.logical_x == 0 && output->current.logical_y == 0))
+            primary = output;
+    }
+    if (primary && primary->current.current_mode)
+    {
+        w = primary->current.current_mode->width;
+        h = primary->current.current_mode->height;
+    }
+    pthread_mutex_unlock(&process_wayland.output_mutex);
+
+    if (w <= 0 || h <= 0) return;
+
+    dm.dmFields     = DM_PELSWIDTH | DM_PELSHEIGHT;
+    dm.dmPelsWidth  = w;
+    dm.dmPelsHeight = h;
+    NtUserChangeDisplaySettings(NULL, &dm, NULL, 0, NULL);
+}
+
+/**********************************************************************
  *           WAYLAND_WindowMessage
  */
 LRESULT WAYLAND_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -615,6 +657,9 @@ LRESULT WAYLAND_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
     case WM_WAYLAND_INIT_DISPLAY_DEVICES:
         NtUserCallNoParam(NtUserCallNoParam_DisplayModeChanged);
+        /* Make the virtual desktop follow the new output size so the shell
+         * gets a real WM_DISPLAYCHANGE and the taskbar/desktop refit. */
+        wayland_resize_virtual_desktop();
         return 0;
     case WM_WAYLAND_CONFIGURE:
         wayland_configure_window(hwnd);
