@@ -663,15 +663,6 @@ LRESULT WAYLAND_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_WAYLAND_CONFIGURE:
         wayland_configure_window(hwnd);
-        /* A configure that arrives after a host output-mode change is the most
-         * reliable signal on the live (wlr-randr) path, where
-         * WM_WAYLAND_INIT_DISPLAY_DEVICES is not necessarily re-posted for a
-         * mode-only change.  Re-sync the virtual desktop here as well; it is a
-         * no-op once the size already matches (and therefore does not recurse),
-         * so the only effect is that a genuine mode change now broadcasts
-         * WM_DISPLAYCHANGE immediately instead of waiting for desk.cpl to call
-         * ChangeDisplaySettings. */
-        wayland_resize_virtual_desktop();
         return 0;
     case WM_WAYLAND_SET_FOREGROUND:
         NtUserSetForegroundWindowInternal(hwnd);
