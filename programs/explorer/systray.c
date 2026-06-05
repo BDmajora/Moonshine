@@ -1125,18 +1125,20 @@ static void do_show_systray(void)
      * before any configure has arrived.
      */
     {
-        /* Prefer the size carried by the last WM_DISPLAYCHANGE: it is correct
-         * even on the live (wlr-randr) path, where SM_CXSCREEN has not yet
-         * caught up.  Fall back to the metric for the very first layout (before
-         * any change has arrived), then to the live client width as a last
-         * resort. */
-        tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
+        /* Prefer the live tray window width.  The compositor reconfigures
+         * our surface on every wlr-randr resolution change (xdg configure
+         * -> Wine WM_SIZE -> this function), and that arrives BEFORE
+         * WM_DISPLAYCHANGE — which only fires when desk.cpl calls
+         * ChangeDisplaySettingsExW on Apply/OK.  Sourcing tray_width from
+         * GetClientRect makes the bar refit at the moment the compositor
+         * changes the mode, not when the user clicks OK.  Fall back to
+         * the cached WM_DISPLAYCHANGE size, then SM_CXSCREEN, for the
+         * very first layout before any configure has arrived. */
+        RECT client;
+        GetClientRect( tray_window, &client );
+        tray_width = client.right - client.left;
         if (tray_width <= 0)
-        {
-            RECT client;
-            GetClientRect( tray_window, &client );
-            tray_width = client.right - client.left;
-        }
+            tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
     }
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
