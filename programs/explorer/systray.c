@@ -1079,6 +1079,9 @@ static void do_show_systray(void)
     HFONT font;
     HDC hdc;
 
+    TRACE( "do_show_systray: entered, enable_taskbar=%d tray_window=%p\n",
+           enable_taskbar, tray_window );
+
     if (!enable_taskbar)
     {
         size = get_window_size();
@@ -1137,8 +1140,12 @@ static void do_show_systray(void)
         RECT client;
         GetClientRect( tray_window, &client );
         tray_width = client.right - client.left;
+        TRACE( "do_show_systray: GetClientRect=%dx%d screen_width=%d SM_CXSCREEN=%d\n",
+               (int)(client.right - client.left), (int)(client.bottom - client.top),
+               screen_width, GetSystemMetrics( SM_CXSCREEN ) );
         if (tray_width <= 0)
             tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
+        TRACE( "do_show_systray: final tray_width=%d\n", tray_width );
     }
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
@@ -1154,6 +1161,9 @@ static void do_show_systray(void)
      */
     {
         int screen_cy = screen_height > 0 ? screen_height : GetSystemMetrics( SM_CYSCREEN );
+        TRACE( "do_show_systray: SetWindowPos y=%d w=%d h=%d screen_cy=%d screen_height=%d SM_CYSCREEN=%d\n",
+               screen_cy - tray_height, tray_width, tray_height,
+               screen_cy, screen_height, GetSystemMetrics( SM_CYSCREEN ) );
         SetWindowPos( tray_window, 0, 0, screen_cy - tray_height,
                       tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
     }
@@ -1194,6 +1204,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          * SM_CXSCREEN/SM_CYSCREEN, which may still hold the boot resolution. */
         screen_width  = LOWORD( lparam );
         screen_height = HIWORD( lparam );
+        TRACE( "WM_DISPLAYCHANGE: screen_width=%d screen_height=%d bpp=%d\n",
+               screen_width, screen_height, (int)wparam );
         /* As the desktop shell, always re-fit to the new screen size — never
          * hide.  (show_systray is FALSE when enable_taskbar is set, so the
          * generic path below would otherwise hide the bar.) */
@@ -1212,9 +1224,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          * startup.  Gated on enable_taskbar so we stay clear of the standalone
          * systray show/hide logic, and guarded against the re-entrancy from
          * do_show_systray()'s own SetWindowPos. */
+        TRACE( "WM_SIZE: type=%d new_cx=%d new_cy=%d enable_taskbar=%d\n",
+               (int)wparam, (int)LOWORD(lparam), (int)HIWORD(lparam), enable_taskbar );
         if (enable_taskbar)
         {
             static BOOL in_recalc;
+            TRACE( "WM_SIZE: in_recalc=%d\n", in_recalc );
             if (!in_recalc)
             {
                 in_recalc = TRUE;
