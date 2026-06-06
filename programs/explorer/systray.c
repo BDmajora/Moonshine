@@ -1079,9 +1079,6 @@ static void do_show_systray(void)
     HFONT font;
     HDC hdc;
 
-    TRACE( "do_show_systray: entered, enable_taskbar=%d tray_window=%p\n",
-           enable_taskbar, tray_window );
-
     if (!enable_taskbar)
     {
         size = get_window_size();
@@ -1128,24 +1125,19 @@ static void do_show_systray(void)
      * before any configure has arrived.
      */
     {
-        /* Prefer the live tray window width.  The compositor reconfigures
-         * our surface on every wlr-randr resolution change (xdg configure
-         * -> Wine WM_SIZE -> this function), and that arrives BEFORE
-         * WM_DISPLAYCHANGE — which only fires when desk.cpl calls
-         * ChangeDisplaySettingsExW on Apply/OK.  Sourcing tray_width from
-         * GetClientRect makes the bar refit at the moment the compositor
-         * changes the mode, not when the user clicks OK.  Fall back to
-         * the cached WM_DISPLAYCHANGE size, then SM_CXSCREEN, for the
-         * very first layout before any configure has arrived. */
-        RECT client;
-        GetClientRect( tray_window, &client );
-        tray_width = client.right - client.left;
-        TRACE( "do_show_systray: GetClientRect=%dx%d screen_width=%d SM_CXSCREEN=%d\n",
-               (int)(client.right - client.left), (int)(client.bottom - client.top),
-               screen_width, GetSystemMetrics( SM_CXSCREEN ) );
+        /* Prefer the cached screen_width: it is updated by both
+         * WM_DISPLAYCHANGE (from ChangeDisplaySettingsExW on Apply/OK) and
+         * WM_SIZE (from compositor-initiated resolution changes, see the
+         * WM_SIZE handler above).  Fall back to SM_CXSCREEN for the very
+         * first layout (before any change has arrived), then to the live
+         * client width as a last resort. */
+        tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
         if (tray_width <= 0)
-            tray_width = screen_width > 0 ? screen_width : GetSystemMetrics( SM_CXSCREEN );
-        TRACE( "do_show_systray: final tray_width=%d\n", tray_width );
+        {
+            RECT client;
+            GetClientRect( tray_window, &client );
+            tray_width = client.right - client.left;
+        }
     }
     tray_height = max( icon_cy, size.cy );
     start_button_width = size.cx;
@@ -1161,9 +1153,6 @@ static void do_show_systray(void)
      */
     {
         int screen_cy = screen_height > 0 ? screen_height : GetSystemMetrics( SM_CYSCREEN );
-        TRACE( "do_show_systray: SetWindowPos y=%d w=%d h=%d screen_cy=%d screen_height=%d SM_CYSCREEN=%d\n",
-               screen_cy - tray_height, tray_width, tray_height,
-               screen_cy, screen_height, GetSystemMetrics( SM_CYSCREEN ) );
         SetWindowPos( tray_window, 0, 0, screen_cy - tray_height,
                       tray_width, tray_height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW );
     }
@@ -1204,8 +1193,6 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          * SM_CXSCREEN/SM_CYSCREEN, which may still hold the boot resolution. */
         screen_width  = LOWORD( lparam );
         screen_height = HIWORD( lparam );
-        TRACE( "WM_DISPLAYCHANGE: screen_width=%d screen_height=%d bpp=%d\n",
-               screen_width, screen_height, (int)wparam );
         /* As the desktop shell, always re-fit to the new screen size — never
          * hide.  (show_systray is FALSE when enable_taskbar is set, so the
          * generic path below would otherwise hide the bar.) */
@@ -1223,15 +1210,24 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          * position and task buttons are recomputed exactly as they are at
          * startup.  Gated on enable_taskbar so we stay clear of the standalone
          * systray show/hide logic, and guarded against the re-entrancy from
-         * do_show_systray()'s own SetWindowPos. */
-        TRACE( "WM_SIZE: type=%d new_cx=%d new_cy=%d enable_taskbar=%d\n",
-               (int)wparam, (int)LOWORD(lparam), (int)HIWORD(lparam), enable_taskbar );
+         * do_show_systray()'s own SetWindowPos.
+         *
+         * The key fix: update screen_width from the WM_SIZE lparam BEFORE
+         * calling do_show_systray().  The compositor sets our surface to
+         * (screen_w, bar_h) via wlr_xdg_toplevel_set_size when the output
+         * resolution changes, so LOWORD(lparam) IS the new screen width.
+         * Without this update, do_show_systray() reads the stale cached
+         * screen_width (set only by WM_DISPLAYCHANGE) and SetWindowPos's
+         * the bar right back to the old width — undoing the compositor's
+         * configure. */
         if (enable_taskbar)
         {
             static BOOL in_recalc;
-            TRACE( "WM_SIZE: in_recalc=%d\n", in_recalc );
             if (!in_recalc)
             {
+                int new_w = LOWORD( lparam );
+                if (new_w > 0) screen_width = new_w;
+
                 in_recalc = TRUE;
                 do_show_systray();
                 in_recalc = FALSE;
