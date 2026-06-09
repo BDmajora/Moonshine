@@ -1,8 +1,22 @@
 MODULE    = winepipewire.drv
 UNIXLIB   = winepipewire.so
 IMPORTS   = dxguid uuid winmm user32 advapi32 ole32
-UNIX_LIBS    = $(PIPEWIRE_LIBS) $(PTHREAD_LIBS) -lm
+
+# Pull the SPA/PipeWire include paths and link flags straight from pkg-config
+# at build time, rather than relying on a configure substitution. Wine's
+# configure only sets PIPEWIRE_CFLAGS/PIPEWIRE_LIBS if the PKG_CHECK_MODULES
+# block was wired into configure.ac *and* configure was regenerated; when it
+# isn't, both expand to empty and the SPA headers (spa/param/audio/...) can't
+# be found and -lpipewire-0.3 is never linked. Resolving them here makes the
+# module self-contained. pkg-config (dev-util/pkgconf) and media-libs/pipewire
+# are both present in the build root, so:
+#   --cflags -> -D_REENTRANT -I/usr/include/pipewire-0.3 -I/usr/include/spa-0.2
+#   --libs   -> -lpipewire-0.3
+PIPEWIRE_CFLAGS := $(shell pkg-config --cflags libpipewire-0.3)
+PIPEWIRE_LIBS   := $(shell pkg-config --libs libpipewire-0.3)
+
 UNIX_CFLAGS  = $(PIPEWIRE_CFLAGS)
+UNIX_LIBS    = $(PIPEWIRE_LIBS) $(PTHREAD_LIBS) -lm
 
 SOURCES = \
 	pipewire.c
