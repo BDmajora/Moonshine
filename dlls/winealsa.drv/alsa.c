@@ -2415,6 +2415,34 @@ static NTSTATUS alsa_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Endpoint (device-level) master volume — part of the shared mmdevapi unix
+ * ABI (set_endpoint_volume / get_endpoint_volume / get_endpoint_volume_range).
+ * ALSA has no equivalent of a node master in this backend's model (mixer
+ * element control would belong to a separate amixer path), so these report
+ * E_NOTIMPL honestly. mmdevapi's IAudioEndpointVolume degrades to defaults
+ * on E_NOTIMPL. Note: these must write params->result — alsa_not_implemented
+ * would leave it uninitialized. */
+static NTSTATUS alsa_set_endpoint_volume(void *args)
+{
+    struct set_endpoint_volume_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS alsa_get_endpoint_volume(void *args)
+{
+    struct get_endpoint_volume_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS alsa_get_endpoint_volume_range(void *args)
+{
+    struct get_endpoint_volume_range_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     alsa_process_attach,
@@ -2454,6 +2482,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     alsa_midi_in_message,
     alsa_midi_notify_wait,
     alsa_not_implemented,
+    alsa_set_endpoint_volume,
+    alsa_get_endpoint_volume,
+    alsa_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -2872,6 +2903,52 @@ static NTSTATUS alsa_wow64_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
+/* 32-bit layouts differ from the 64-bit structs (PTR32 device/out pointers),
+ * so result sits at a different offset — hence dedicated thunks even for
+ * E_NOTIMPL. */
+static NTSTATUS alsa_wow64_set_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        float level;
+        int mute;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS alsa_wow64_get_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 level;
+        PTR32 mute;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS alsa_wow64_get_endpoint_volume_range(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 min_db;
+        PTR32 max_db;
+        PTR32 inc_db;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     alsa_process_attach,
@@ -2911,6 +2988,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     alsa_wow64_midi_in_message,
     alsa_wow64_midi_notify_wait,
     alsa_not_implemented,
+    alsa_wow64_set_endpoint_volume,
+    alsa_wow64_get_endpoint_volume,
+    alsa_wow64_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
