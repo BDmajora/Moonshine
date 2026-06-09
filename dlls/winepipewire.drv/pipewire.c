@@ -42,6 +42,8 @@
 
 #include <spa/param/audio/format-utils.h>
 #include <spa/param/props.h>
+#include <spa/param/param.h>
+#include <spa/pod/parser.h>
 #include <spa/utils/result.h>
 #include <pipewire/pipewire.h>
 
@@ -188,6 +190,7 @@ typedef struct _PhysDevice
     EndpointFormFactor form;
     UINT channel_mask;
     UINT index;                 /* PipeWire object.serial / node id */
+    UINT node_id;               /* PipeWire registry global id (for pw_registry_bind) */
     REFERENCE_TIME min_period, def_period;
     WAVEFORMATEXTENSIBLE fmt;
     char pw_name[0];            /* PipeWire node.name */
@@ -352,7 +355,7 @@ static void core_roundtrip(void)
 
 static void pw_add_device(struct list *list, const struct spa_dict *props,
                           UINT index, EndpointFormFactor form, UINT channel_mask,
-                          const char *node_name, const char *desc)
+                          const char *node_name, const char *desc, UINT node_id)
 {
     size_t len = strlen(node_name);
     PhysDevice *dev = malloc(FIELD_OFFSET(PhysDevice, pw_name[len + 1]));
@@ -373,6 +376,7 @@ static void pw_add_device(struct list *list, const struct spa_dict *props,
 
     dev->form = form;
     dev->index = index;
+    dev->node_id = node_id;
     dev->channel_mask = channel_mask;
     dev->def_period = 100000;   /* 10 ms default */
     dev->min_period = 30000;    /* 3 ms minimum  */
@@ -422,10 +426,10 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
      * the shared-mode mix layout for the vast majority of endpoints. */
     if (!strcmp(media_class, "Audio/Sink"))
         pw_add_device(&g_phys_speakers, props, index, Speakers,
-                      KSAUDIO_SPEAKER_STEREO, node_name, desc);
+                      KSAUDIO_SPEAKER_STEREO, node_name, desc, id);
     else if (!strcmp(media_class, "Audio/Source"))
         pw_add_device(&g_phys_sources, props, index, Microphone,
-                      0, node_name, desc);
+                      0, node_name, desc, id);
 }
 
 static void on_registry_global_remove(void *data, uint32_t id)
@@ -621,8 +625,8 @@ static NTSTATUS pw_test_connect(void *args)
 
     /* Fallback "default" entries (empty node name => server default), so a
      * stream can always be created even before enumeration completes. */
-    pw_add_device(&g_phys_speakers, NULL, 0, Speakers, KSAUDIO_SPEAKER_STEREO, "", "PipeWire Output");
-    pw_add_device(&g_phys_sources,  NULL, 0, Microphone, 0, "", "PipeWire Input");
+    pw_add_device(&g_phys_speakers, NULL, 0, Speakers, KSAUDIO_SPEAKER_STEREO, "", "PipeWire Output", 0);
+    pw_add_device(&g_phys_sources,  NULL, 0, Microphone, 0, "", "PipeWire Input", 0);
 
     core_roundtrip();   /* deliver all registry globals */
 
@@ -1763,6 +1767,223 @@ static NTSTATUS pw_midi_get_driver(void *args)
 }
 
 /* ------------------------------------------------------------------ *
+ *  Phase 2: endpoint (node) master volume + mute                      *
+ *                                                                     *
+ *  These bind the PipeWire node proxy and read/write its Props param  *
+ *  (SPA_PROP_channelVolumes / SPA_PROP_mute). This is the device-wide *
+ *  master that IAudioEndpointVolume drives — separate from the        *
+ *  per-stream software gain applied in set_volumes/apply_volume.      *
+ *                                                                     *
+ *  TUNING: channelVolumes is treated as the WASAPI "scalar" directly  *
+ *  (linear amplitude 0..1). PipeWire's UI tools apply a cubic curve   *
+ *  for perceptual feel; if the slider feels non-linear vs. Windows,   *
+ *  cube on write / cube-root on read here.                            *
+ * ------------------------------------------------------------------ */
+
+struct node_props_result
+{
+    BOOL got;
+    float volume;       /* averaged channelVolumes */
+    int mute;           /* -1 = unknown */
+    uint32_t channels;
+};
+
+static void on_node_param(void *data, int seq, uint32_t id, uint32_t index,
+                          uint32_t next, const struct spa_pod *param)
+{
+    struct node_props_result *r = data;
+    struct spa_pod_object *obj;
+    struct spa_pod_prop *prop;
+
+    if (id != SPA_PARAM_Props || !param ||
+        !spa_pod_is_object_type(param, SPA_TYPE_OBJECT_Props))
+        return;
+
+    obj = (struct spa_pod_object *)param;
+    SPA_POD_OBJECT_FOREACH(obj, prop) {
+        switch (prop->key) {
+        case SPA_PROP_channelVolumes: {
+            float vols[PW_CHANNELS_MAX];
+            uint32_t n = spa_pod_copy_array(&prop->value, SPA_TYPE_Float,
+                                            vols, PW_CHANNELS_MAX);
+            if (n) {
+                float sum = 0.0f;
+                uint32_t i;
+                for (i = 0; i < n; i++) sum += vols[i];
+                r->volume = sum / n;
+                r->channels = n;
+            }
+            break;
+        }
+        case SPA_PROP_volume: {
+            float v;
+            if (spa_pod_get_float(&prop->value, &v) == 0 && !r->channels)
+                r->volume = v;
+            break;
+        }
+        case SPA_PROP_mute: {
+            bool m;
+            if (spa_pod_get_bool(&prop->value, &m) == 0)
+                r->mute = m ? 1 : 0;
+            break;
+        }
+        default: break;
+        }
+    }
+    r->got = TRUE;
+}
+
+static const struct pw_node_events node_events =
+{
+    PW_VERSION_NODE_EVENTS,
+    .param = on_node_param,
+};
+
+/* Caller holds the loop lock. */
+static BOOL node_get_props(UINT node_id, float *volume, int *mute, uint32_t *channels)
+{
+    struct pw_node *node;
+    struct spa_hook listener;
+    struct node_props_result res = { .mute = -1 };
+    uint32_t ids[1] = { SPA_PARAM_Props };
+
+    if (!node_id || !pw_reg) return FALSE;
+
+    node = pw_registry_bind(pw_reg, node_id, PW_TYPE_INTERFACE_Node, PW_VERSION_NODE, 0);
+    if (!node) return FALSE;
+
+    spa_zero(listener);
+    pw_node_add_listener(node, &listener, &node_events, &res);
+    pw_node_subscribe_params(node, ids, 1);
+    core_roundtrip();   /* pump until the Props param has been delivered */
+    spa_hook_remove(&listener);
+    pw_proxy_destroy((struct pw_proxy *)node);
+
+    if (!res.got) return FALSE;
+    if (volume)   *volume = res.volume;
+    if (mute)     *mute = res.mute;
+    if (channels) *channels = res.channels ? res.channels : 2;
+    return TRUE;
+}
+
+/* Caller holds the loop lock. vols==NULL leaves the volume unchanged;
+ * mute<0 leaves mute unchanged. */
+static BOOL node_set_props(UINT node_id, const float *vols, uint32_t channels, int mute)
+{
+    struct pw_node *node;
+    uint8_t buffer[1024];
+    struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    struct spa_pod_frame f;
+    const struct spa_pod *pod;
+
+    if (!node_id || !pw_reg) return FALSE;
+
+    node = pw_registry_bind(pw_reg, node_id, PW_TYPE_INTERFACE_Node, PW_VERSION_NODE, 0);
+    if (!node) return FALSE;
+
+    spa_pod_builder_push_object(&b, &f, SPA_TYPE_OBJECT_Props, SPA_PARAM_Props);
+    if (vols && channels) {
+        spa_pod_builder_prop(&b, SPA_PROP_channelVolumes, 0);
+        spa_pod_builder_array(&b, sizeof(float), SPA_TYPE_Float, channels, vols);
+    }
+    if (mute >= 0) {
+        spa_pod_builder_prop(&b, SPA_PROP_mute, 0);
+        spa_pod_builder_bool(&b, mute ? true : false);
+    }
+    pod = spa_pod_builder_pop(&b, &f);
+
+    pw_node_set_param(node, SPA_PARAM_Props, 0, pod);
+    core_roundtrip();
+    pw_proxy_destroy((struct pw_proxy *)node);
+    return TRUE;
+}
+
+/* Resolve a device name to a bindable node id. An empty name (the synthetic
+ * default endpoint) resolves to the first real node of the right flow. */
+static UINT resolve_node_id(EDataFlow flow, const char *name)
+{
+    struct list *list = (flow == eRender) ? &g_phys_speakers : &g_phys_sources;
+    PhysDevice *dev;
+
+    if (name && name[0]) {
+        LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry)
+            if (dev->node_id && !strcmp(name, dev->pw_name))
+                return dev->node_id;
+    }
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry)
+        if (dev->node_id)
+            return dev->node_id;
+    return 0;
+}
+
+static NTSTATUS pw_set_endpoint_volume(void *args)
+{
+    struct set_endpoint_volume_params *params = args;
+    UINT node_id;
+
+    pw_lock();
+    node_id = resolve_node_id(params->flow, params->device);
+    if (!node_id) {
+        pw_unlock();
+        params->result = E_FAIL;
+        return STATUS_SUCCESS;
+    }
+
+    if (params->level >= 0.0f) {
+        float vols[PW_CHANNELS_MAX];
+        uint32_t i, channels = 2;
+        node_get_props(node_id, NULL, NULL, &channels);
+        if (!channels || channels > PW_CHANNELS_MAX) channels = 2;
+        for (i = 0; i < channels; i++) vols[i] = params->level;
+        node_set_props(node_id, vols, channels, params->mute);
+    } else {
+        node_set_props(node_id, NULL, 0, params->mute);
+    }
+    pw_unlock();
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_get_endpoint_volume(void *args)
+{
+    struct get_endpoint_volume_params *params = args;
+    UINT node_id;
+    float vol = 1.0f;
+    int mute = 0;
+
+    pw_lock();
+    node_id = resolve_node_id(params->flow, params->device);
+    if (!node_id) {
+        pw_unlock();
+        params->result = E_FAIL;
+        return STATUS_SUCCESS;
+    }
+    if (!node_get_props(node_id, &vol, &mute, NULL)) {
+        pw_unlock();
+        params->result = E_FAIL;
+        return STATUS_SUCCESS;
+    }
+    pw_unlock();
+
+    if (params->level) *params->level = vol;
+    if (params->mute)  *params->mute = (mute < 0) ? 0 : mute;
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_get_endpoint_volume_range(void *args)
+{
+    struct get_endpoint_volume_range_params *params = args;
+    /* PipeWire node volume is linear 0..1 with no fixed step; report the
+     * conventional Windows shared-endpoint dB range. */
+    if (params->min_db) *params->min_db = -100.0f;
+    if (params->max_db) *params->max_db = 0.0f;
+    if (params->inc_db) *params->inc_db = 1.0f;
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ *
  *  Dispatch table (order MUST match enum unix_funcs)                  *
  * ------------------------------------------------------------------ */
 
@@ -1805,6 +2026,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pw_not_implemented,   /* midi_in_message  */
     pw_not_implemented,   /* midi_notify_wait */
     pw_not_implemented,   /* aux_message      */
+    pw_set_endpoint_volume,
+    pw_get_endpoint_volume,
+    pw_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -2172,6 +2396,74 @@ static NTSTATUS pw_wow64_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS pw_wow64_set_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        float level;
+        int mute;
+        HRESULT result;
+    } *p32 = args;
+    struct set_endpoint_volume_params params =
+    {
+        .device = ULongToPtr(p32->device),
+        .flow = p32->flow,
+        .level = p32->level,
+        .mute = p32->mute,
+    };
+    pw_set_endpoint_volume(&params);
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_wow64_get_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 level;
+        PTR32 mute;
+        HRESULT result;
+    } *p32 = args;
+    struct get_endpoint_volume_params params =
+    {
+        .device = ULongToPtr(p32->device),
+        .flow = p32->flow,
+        .level = ULongToPtr(p32->level),
+        .mute = ULongToPtr(p32->mute),
+    };
+    pw_get_endpoint_volume(&params);
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_wow64_get_endpoint_volume_range(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 min_db;
+        PTR32 max_db;
+        PTR32 inc_db;
+        HRESULT result;
+    } *p32 = args;
+    struct get_endpoint_volume_range_params params =
+    {
+        .device = ULongToPtr(p32->device),
+        .flow = p32->flow,
+        .min_db = ULongToPtr(p32->min_db),
+        .max_db = ULongToPtr(p32->max_db),
+        .inc_db = ULongToPtr(p32->inc_db),
+    };
+    pw_get_endpoint_volume_range(&params);
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     pw_process_attach,
@@ -2211,6 +2503,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pw_not_implemented,
     pw_not_implemented,
     pw_not_implemented,
+    pw_wow64_set_endpoint_volume,
+    pw_wow64_get_endpoint_volume,
+    pw_wow64_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);

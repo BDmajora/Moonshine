@@ -311,6 +311,40 @@ struct aux_message_params
     UINT *err;
 };
 
+/* Phase 2: endpoint (node-level) master volume + mute. Distinct from
+ * set_volumes, which folds master*session*channel into a per-stream
+ * software gain. These operate on the backend device node itself, so the
+ * change is global and survives across streams (what IAudioEndpointVolume
+ * needs). The driver maps these onto the PipeWire node's
+ * SPA_PROP_channelVolumes / SPA_PROP_mute. */
+struct set_endpoint_volume_params
+{
+    const char *device;
+    EDataFlow flow;
+    float level;   /* 0.0 .. 1.0 scalar; < 0 leaves the volume unchanged */
+    int mute;      /* -1 = leave, 0/1 = set */
+    HRESULT result;
+};
+
+struct get_endpoint_volume_params
+{
+    const char *device;
+    EDataFlow flow;
+    float *level;  /* out: 0.0 .. 1.0 scalar */
+    int *mute;     /* out: 0/1 */
+    HRESULT result;
+};
+
+struct get_endpoint_volume_range_params
+{
+    const char *device;
+    EDataFlow flow;
+    float *min_db; /* out */
+    float *max_db; /* out */
+    float *inc_db; /* out */
+    HRESULT result;
+};
+
 enum unix_funcs
 {
     process_attach,
@@ -350,5 +384,8 @@ enum unix_funcs
     midi_in_message,
     midi_notify_wait,
     aux_message,
+    set_endpoint_volume,
+    get_endpoint_volume,
+    get_endpoint_volume_range,
     funcs_count
 };
