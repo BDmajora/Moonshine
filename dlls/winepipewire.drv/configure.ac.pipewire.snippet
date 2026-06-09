@@ -1,0 +1,34 @@
+dnl ============================================================================
+dnl  Drop this block into configure.ac next to the existing PulseAudio check
+dnl  (search for: **** Check for PulseAudio ****). It mirrors that block.
+dnl
+dnl  Provides:  PIPEWIRE_CFLAGS / PIPEWIRE_LIBS   (consumed by
+dnl             dlls/winepipewire.drv/Makefile.in)
+dnl  Gates:     enable_winepipewire_drv  (disabled if the dev files are absent)
+dnl ============================================================================
+
+dnl **** Check for PipeWire ****
+if test "x$with_pipewire" != "xno";
+then
+    PKG_CHECK_MODULES(PIPEWIRE,[libpipewire-0.3],[:],
+        [PIPEWIRE_CFLAGS=""
+         PIPEWIRE_LIBS=""])
+fi
+WINE_NOTICE_WITH(pipewire,[test -z "$PIPEWIRE_LIBS"],
+                 [libpipewire-0.3 ${notice_platform}development files not found, PipeWire won't be supported.],
+                 [enable_winepipewire_drv])
+
+dnl ----------------------------------------------------------------------------
+dnl  Also add the --with(out)-pipewire option near the other with_* options
+dnl  (search for: AC_ARG_WITH(pulse ...). Mirror it:
+dnl
+dnl     AC_ARG_WITH(pipewire,   AS_HELP_STRING([--without-pipewire],[do not use PipeWire]),
+dnl                 [if test "x$withval" = "xno"; then ac_cv_header_pipewire_pipewire_h=no; fi])
+dnl ----------------------------------------------------------------------------
+
+dnl ----------------------------------------------------------------------------
+dnl  And register the module so configure emits its Makefile
+dnl  (search for: WINE_CONFIG_MAKEFILE(dlls/winepulse.drv) ). Mirror it:
+dnl
+dnl     WINE_CONFIG_MAKEFILE(dlls/winepipewire.drv)
+dnl ----------------------------------------------------------------------------
