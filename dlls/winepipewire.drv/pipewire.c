@@ -393,11 +393,76 @@ static void pw_add_device(struct list *list, const struct spa_dict *props,
     TRACE("added %s (%s)\n", debugstr_w(dev->name), node_name);
 }
 
+/* ------------------------------------------------------------------ *
+ *  Windows-model endpoint naming                                      *
+ *                                                                     *
+ *  Windows names endpoints "<Endpoint> (<Adapter>)":                  *
+ *      Speakers (High Definition Audio Device)                        *
+ *      Microphone (Blue Snowball)                                     *
+ *                                                                     *
+ *  The endpoint half comes from the flow/form factor; the adapter     *
+ *  half follows the in-box Windows driver convention:                 *
+ *    - PCI/platform HDA-class cards  -> "High Definition Audio        *
+ *      Device" (exactly the in-box HDA driver string)                 *
+ *    - USB devices                   -> the USB product string        *
+ *    - Bluetooth                     -> the device's product/alias    *
+ *  No PipeWire/ALSA/Pulse string ever reaches the Win32 side.         *
+ * ------------------------------------------------------------------ */
+
+static void build_endpoint_name(const struct spa_dict *props, EDataFlow flow,
+                                char *buf, size_t size)
+{
+    const char *endpoint = (flow == eRender) ? "Speakers" : "Microphone";
+    const char *bus = spa_dict_lookup(props, PW_KEY_DEVICE_BUS);
+    const char *adapter = NULL;
+
+    if (bus && (!strcmp(bus, "usb") || !strcmp(bus, "bluetooth"))) {
+        /* Real product string, like Windows shows for USB/BT audio. */
+        adapter = spa_dict_lookup(props, PW_KEY_DEVICE_PRODUCT_NAME);
+        if (!adapter || !adapter[0])
+            adapter = spa_dict_lookup(props, "api.alsa.card.name");
+        if (!adapter || !adapter[0])
+            adapter = spa_dict_lookup(props, "alsa.card_name");
+    }
+
+    /* PCI/platform HDA cards and anything unidentified: the in-box
+     * Windows HDA driver string. */
+    if (!adapter || !adapter[0])
+        adapter = "High Definition Audio Device";
+
+    snprintf(buf, size, "%s (%s)", endpoint, adapter);
+}
+
+/* Only real hardware endpoints are exposed — the pipewire-pulse compat
+ * nodes ("PulseAudio Output/Input"), monitors, loopbacks, and other
+ * virtual nodes are PipeWire plumbing with no Windows equivalent. */
+static BOOL is_hardware_node(const struct spa_dict *props, const char *node_name)
+{
+    const char *api = spa_dict_lookup(props, PW_KEY_DEVICE_API);
+    size_t len;
+
+    /* Monitor sources mirror a sink; never a Windows endpoint. */
+    len = strlen(node_name);
+    if (len >= 8 && !strcmp(node_name + len - 8, ".monitor"))
+        return FALSE;
+
+    if (api && (!strcmp(api, "alsa") || !strcmp(api, "bluez5")))
+        return TRUE;
+
+    /* Some ALSA nodes carry api.alsa.* without device.api. */
+    if (spa_dict_lookup(props, "api.alsa.path") ||
+        spa_dict_lookup(props, "api.alsa.pcm.card"))
+        return TRUE;
+
+    return FALSE;
+}
+
 static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
                                const char *type, uint32_t version,
                                const struct spa_dict *props)
 {
-    const char *media_class, *node_name, *desc, *serial;
+    const char *media_class, *node_name, *serial;
+    char desc[256];
     UINT index;
 
     if (!props || !type)
@@ -420,7 +485,12 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
     node_name = spa_dict_lookup(props, PW_KEY_NODE_NAME);
     if (!node_name)
         return;
-    desc   = spa_dict_lookup(props, PW_KEY_NODE_DESCRIPTION);
+
+    if (!is_hardware_node(props, node_name)) {
+        TRACE("hiding non-hardware node %s\n", node_name);
+        return;
+    }
+
     serial = spa_dict_lookup(props, PW_KEY_OBJECT_SERIAL);
     index  = serial ? strtoul(serial, NULL, 10) : id;
 
@@ -428,12 +498,15 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
      * layout, enumerate the node's EnumFormat param (requires binding the
      * node proxy and a param roundtrip). Stereo is what Windows reports as
      * the shared-mode mix layout for the vast majority of endpoints. */
-    if (!strcmp(media_class, "Audio/Sink"))
+    if (!strcmp(media_class, "Audio/Sink")) {
+        build_endpoint_name(props, eRender, desc, sizeof(desc));
         pw_add_device(&g_phys_speakers, props, index, Speakers,
                       KSAUDIO_SPEAKER_STEREO, node_name, desc, id);
-    else if (!strcmp(media_class, "Audio/Source"))
+    } else if (!strcmp(media_class, "Audio/Source")) {
+        build_endpoint_name(props, eCapture, desc, sizeof(desc));
         pw_add_device(&g_phys_sources, props, index, Microphone,
                       0, node_name, desc, id);
+    }
 }
 
 static void on_registry_global_remove(void *data, uint32_t id)
@@ -605,6 +678,27 @@ static NTSTATUS pw_main_loop(void *args)
  *  test_connect / get_endpoint_ids                                    *
  * ------------------------------------------------------------------ */
 
+/* Drop the synthetic (empty pw_name) placeholder once at least one real
+ * hardware endpoint is on the list. */
+static void prune_synthetic(struct list *list)
+{
+    PhysDevice *dev, *next;
+    unsigned int real = 0;
+
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry)
+        if (dev->pw_name[0]) real++;
+    if (!real)
+        return;
+
+    LIST_FOR_EACH_ENTRY_SAFE(dev, next, list, PhysDevice, entry) {
+        if (!dev->pw_name[0]) {
+            list_remove(&dev->entry);
+            free(dev->name);
+            free(dev);
+        }
+    }
+}
+
 static NTSTATUS pw_test_connect(void *args)
 {
     struct test_connect_params *params = args;
@@ -627,12 +721,20 @@ static NTSTATUS pw_test_connect(void *args)
     list_init(&g_phys_speakers);
     list_init(&g_phys_sources);
 
-    /* Fallback "default" entries (empty node name => server default), so a
-     * stream can always be created even before enumeration completes. */
-    pw_add_device(&g_phys_speakers, NULL, 0, Speakers, KSAUDIO_SPEAKER_STEREO, "", "PipeWire Output", 0);
-    pw_add_device(&g_phys_sources,  NULL, 0, Microphone, 0, "", "PipeWire Input", 0);
+    /* Fallback entries (empty node name => server default), so a stream can
+     * always be created even if no hardware node enumerates. Named like
+     * Windows in-box endpoints; pruned below when real hardware shows up. */
+    pw_add_device(&g_phys_speakers, NULL, 0, Speakers, KSAUDIO_SPEAKER_STEREO,
+                  "", "Speakers (High Definition Audio Device)", 0);
+    pw_add_device(&g_phys_sources,  NULL, 0, Microphone, 0,
+                  "", "Microphone (High Definition Audio Device)", 0);
 
     core_roundtrip();   /* deliver all registry globals */
+
+    /* If real hardware enumerated, drop the synthetic placeholders so the
+     * device list is exactly what Windows would show. */
+    prune_synthetic(&g_phys_speakers);
+    prune_synthetic(&g_phys_sources);
 
     LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry)
         fill_device_format(dev, 1);
