@@ -109,7 +109,7 @@ INT_PTR CALLBACK sounds_dialog_proc(HWND hwnd, UINT msg,
         unsigned int i;
 
         SendDlgItemMessageW(hwnd, IDC_SCHEME_COMBO, CB_ADDSTRING, 0,
-                            (LPARAM)L"YetiOS Default");
+                            (LPARAM)L"Windows Default");
         SendDlgItemMessageW(hwnd, IDC_SCHEME_COMBO, CB_SETCURSEL, 0, 0);
 
         for (i = 0; i < ARRAY_SIZE(event_table); i++)
