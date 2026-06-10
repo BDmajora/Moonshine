@@ -1,0 +1,166 @@
+/* mmsys.cpl — resources. Layouts are functional; Win7 visual polish is a
+ * later pass. */
+
+#include "windef.h"
+#include "winuser.h"
+#include "commctrl.h"
+
+#include "mmsys_res.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+STRINGTABLE
+{
+    IDS_CPL_NAME "Sound"
+    IDS_CPL_INFO "Configure audio devices and the system sound scheme."
+}
+
+ICO_SOUND ICON mmsys.ico
+
+/* comctl32 v6 activation-context manifest (same mechanism as desk.cpl). */
+124 RT_MANIFEST mmsys.manifest
+
+/* ------------------------------------------------------------------ */
+/* Sound dialog pages                                                 */
+/* ------------------------------------------------------------------ */
+
+IDD_PLAYBACK DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Playback"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT       "Select a playback device below to modify its settings:",
+                -1, 7, 7, 238, 10
+    CONTROL     "", IDC_DEVICE_LIST, "SysListView32",
+                LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,
+                7, 20, 238, 160
+    PUSHBUTTON  "&Configure", IDC_CONFIGURE, 7, 188, 60, 14
+    PUSHBUTTON  "&Set Default", IDC_SET_DEFAULT, 117, 188, 60, 14
+    PUSHBUTTON  "&Properties", IDC_PROPERTIES, 185, 188, 60, 14
+}
+
+IDD_RECORDING DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Recording"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT       "Select a recording device below to modify its settings:",
+                -1, 7, 7, 238, 10
+    CONTROL     "", IDC_DEVICE_LIST, "SysListView32",
+                LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,
+                7, 20, 238, 160
+    PUSHBUTTON  "&Configure", IDC_CONFIGURE, 7, 188, 60, 14
+    PUSHBUTTON  "&Set Default", IDC_SET_DEFAULT, 117, 188, 60, 14
+    PUSHBUTTON  "&Properties", IDC_PROPERTIES, 185, 188, 60, 14
+}
+
+IDD_SOUNDS DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Sounds"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT       "Sound Sc&heme:", -1, 7, 7, 80, 10
+    COMBOBOX    IDC_SCHEME_COMBO, 7, 18, 160, 60,
+                CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT       "Program &Events:", -1, 7, 38, 80, 10
+    LISTBOX     IDC_EVENT_LIST, 7, 49, 238, 110,
+                LBS_NOTIFY | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    LTEXT       "&Sounds:", -1, 7, 164, 60, 10
+    EDITTEXT    IDC_SOUND_PATH, 7, 175, 160, 13, ES_READONLY
+    PUSHBUTTON  "&Browse...", IDC_BROWSE, 117, 192, 60, 14
+    PUSHBUTTON  "&Test", IDC_TEST, 185, 192, 60, 14
+}
+
+IDD_COMMS DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Communications"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT       "Windows can automatically adjust the volume of different sounds when you are using your PC to place or receive telephone calls.",
+                -1, 7, 7, 238, 26
+    LTEXT       "When Windows detects communications activity:",
+                -1, 7, 40, 238, 10
+    CONTROL     "&Mute all other sounds", IDC_COMM_MUTE, "Button",
+                BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 15, 56, 220, 10
+    CONTROL     "Reduce the volume of other sounds by &80%", IDC_COMM_80, "Button",
+                BS_AUTORADIOBUTTON, 15, 70, 220, 10
+    CONTROL     "Reduce the volume of other sounds by &50%", IDC_COMM_50, "Button",
+                BS_AUTORADIOBUTTON, 15, 84, 220, 10
+    CONTROL     "&Do nothing", IDC_COMM_NOTHING, "Button",
+                BS_AUTORADIOBUTTON, 15, 98, 220, 10
+}
+
+/* ------------------------------------------------------------------ */
+/* Endpoint Properties pages                                          */
+/* ------------------------------------------------------------------ */
+
+IDD_SPK_GENERAL DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+{
+    EDITTEXT    IDC_GEN_NAME, 7, 7, 238, 13, ES_READONLY
+    GROUPBOX    "Controller Information", -1, 7, 30, 238, 40
+    LTEXT       "", IDC_GEN_CONTROLLER, 15, 44, 222, 20
+    GROUPBOX    "Jack Information", -1, 7, 76, 238, 40
+    LTEXT       "", IDC_GEN_JACK, 15, 90, 222, 20
+    LTEXT       "Device &usage:", -1, 7, 186, 70, 10
+    COMBOBOX    IDC_GEN_USAGE, 80, 184, 165, 60,
+                CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+}
+
+IDD_SPK_LEVELS DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Levels"
+FONT 8, "MS Shell Dlg"
+{
+    GROUPBOX    "Output level", -1, 7, 7, 238, 60
+    CONTROL     "", IDC_LVL_SLIDER, "msctls_trackbar32",
+                TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 15, 24, 160, 18
+    CTEXT       "100", IDC_LVL_VALUE, 180, 26, 25, 12
+    CONTROL     "&Mute", IDC_LVL_MUTE, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 48, 60, 10
+    PUSHBUTTON  "&Balance...", IDC_LVL_BALANCE, 185, 46, 55, 14
+}
+
+IDD_SPK_ENH DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Enhancements"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT       "Select the enhancements to apply for your current speaker configuration. Changes may not take effect until the next time you start playback.",
+                -1, 7, 7, 238, 26
+    CONTROL     "&Disable all enhancements", IDC_ENH_DISABLE_ALL, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 7, 40, 220, 10
+    CONTROL     "&Bass Boost", IDC_ENH_BASS, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 58, 212, 10
+    CONTROL     "&Virtual Surround", IDC_ENH_SURROUND, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 72, 212, 10
+    CONTROL     "&Loudness Equalization", IDC_ENH_LOUDNESS, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 86, 212, 10
+    CONTROL     "&Room Correction", IDC_ENH_ROOM, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 100, 212, 10
+}
+
+IDD_SPK_ADV DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Advanced"
+FONT 8, "MS Shell Dlg"
+{
+    GROUPBOX    "Default Format", -1, 7, 7, 238, 60
+    LTEXT       "Select the sample rate and bit depth to be used when running in shared mode.",
+                -1, 15, 20, 222, 18
+    COMBOBOX    IDC_ADV_FORMAT, 15, 40, 160, 100,
+                CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON  "&Test", IDC_ADV_TEST, 185, 39, 50, 14
+
+    GROUPBOX    "Exclusive Mode", -1, 7, 76, 238, 50
+    CONTROL     "&Allow applications to take exclusive control of this device",
+                IDC_ADV_EXCL_ALLOW, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 90, 222, 10
+    CONTROL     "Give exclusive mode applications &priority",
+                IDC_ADV_EXCL_PRIO, "Button",
+                BS_AUTOCHECKBOX | WS_TABSTOP, 15, 104, 222, 10
+
+    PUSHBUTTON  "&Restore Defaults", IDC_ADV_RESTORE, 7, 196, 80, 14
+}

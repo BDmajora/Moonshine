@@ -22737,6 +22737,7 @@ wine_fn_config_makefile dlls/mmcndmgr/tests enable_tests
 wine_fn_config_makefile dlls/mmdevapi enable_mmdevapi
 wine_fn_config_makefile dlls/mmdevapi/tests enable_tests
 wine_fn_config_makefile dlls/mmdevldr.vxd enable_win16
+wine_fn_config_makefile dlls/mmsys.cpl enable_mmsys.cpl
 wine_fn_config_makefile dlls/mmsystem.dll16 enable_win16
 wine_fn_config_makefile dlls/monodebg.vxd enable_win16
 wine_fn_config_makefile dlls/mouhid.sys enable_mouhid_sys
