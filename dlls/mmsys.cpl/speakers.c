@@ -5,7 +5,7 @@
 
 #include "mmsys_private.h"
 
-#include "functiondiscoverykeys_devpkey.h"
+#include "devpkey.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mmsyscpl);
 

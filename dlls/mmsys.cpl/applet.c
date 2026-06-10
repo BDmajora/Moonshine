@@ -6,7 +6,7 @@
 
 /* Instantiate every GUID/PROPERTYKEY the module references; all other
  * translation units get extern declarations from the same headers. */
-#include "functiondiscoverykeys_devpkey.h"
+#include "devpkey.h"
 #include "mmreg.h"
 #include "ks.h"
 #include "ksmedia.h"
