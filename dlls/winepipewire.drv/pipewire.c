@@ -46,6 +46,7 @@
 #include <spa/pod/parser.h>
 #include <spa/utils/result.h>
 #include <pipewire/pipewire.h>
+#include <pipewire/extensions/metadata.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -208,6 +209,7 @@ static struct spa_hook        reg_listener;
 static struct spa_hook        core_listener;
 static int                    core_sync_seq;
 static BOOL                   core_sync_done;
+static UINT                   g_metadata_id;   /* registry id of metadata.name=="default" */
 
 static struct list g_phys_speakers = LIST_INIT(g_phys_speakers);
 static struct list g_phys_sources  = LIST_INIT(g_phys_sources);
@@ -398,7 +400,17 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
     const char *media_class, *node_name, *desc, *serial;
     UINT index;
 
-    if (!props || !type || strcmp(type, PW_TYPE_INTERFACE_Node))
+    if (!props || !type)
+        return;
+
+    if (!strcmp(type, PW_TYPE_INTERFACE_Metadata)) {
+        const char *meta_name = spa_dict_lookup(props, PW_KEY_METADATA_NAME);
+        if (meta_name && !strcmp(meta_name, "default"))
+            g_metadata_id = id;
+        return;
+    }
+
+    if (strcmp(type, PW_TYPE_INTERFACE_Node))
         return;
 
     media_class = spa_dict_lookup(props, PW_KEY_MEDIA_CLASS);
@@ -1974,6 +1986,70 @@ static NTSTATUS pw_get_endpoint_volume_range(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Make the server-side default follow mmdevapi's default. Writes the
+ * "default" metadata object: default.configured.audio.sink is what
+ * WirePlumber persists/acts on (it then updates default.audio.sink);
+ * we also write the plain key for metadata-only setups. */
+static NTSTATUS pw_set_default_endpoint(void *args)
+{
+    struct set_default_endpoint_params *params = args;
+    struct pw_metadata *meta;
+    const char *key_cfg, *key_live;
+    char json[600];
+    size_t i, o;
+
+    /* Empty device = revert to system default: nothing to push; WirePlumber
+     * keeps its own choice. */
+    if (!params->device || !params->device[0]) {
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
+    if (params->flow == eRender) {
+        key_cfg  = "default.configured.audio.sink";
+        key_live = "default.audio.sink";
+    } else {
+        key_cfg  = "default.configured.audio.source";
+        key_live = "default.audio.source";
+    }
+
+    /* Minimal JSON string escape of the node name. */
+    o = (size_t)snprintf(json, sizeof(json), "{\"name\":\"");
+    for (i = 0; params->device[i] && o < sizeof(json) - 3; i++) {
+        char c = params->device[i];
+        if (c == '"' || c == '\\') {
+            if (o >= sizeof(json) - 4) break;
+            json[o++] = '\\';
+        }
+        json[o++] = c;
+    }
+    json[o++] = '"'; json[o++] = '}'; json[o] = 0;
+
+    pw_lock();
+    if (!pw_reg || !g_metadata_id) {
+        pw_unlock();
+        params->result = E_NOTIMPL;   /* no default metadata object (no session manager) */
+        return STATUS_SUCCESS;
+    }
+
+    meta = pw_registry_bind(pw_reg, g_metadata_id, PW_TYPE_INTERFACE_Metadata,
+                            PW_VERSION_METADATA, 0);
+    if (!meta) {
+        pw_unlock();
+        params->result = E_FAIL;
+        return STATUS_SUCCESS;
+    }
+
+    pw_metadata_set_property(meta, 0, key_cfg,  "Spa:String:JSON", json);
+    pw_metadata_set_property(meta, 0, key_live, "Spa:String:JSON", json);
+    core_roundtrip();
+    pw_proxy_destroy((struct pw_proxy *)meta);
+    pw_unlock();
+
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
 /* ------------------------------------------------------------------ *
  *  Dispatch table (order MUST match enum unix_funcs)                  *
  * ------------------------------------------------------------------ */
@@ -2020,6 +2096,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pw_set_endpoint_volume,
     pw_get_endpoint_volume,
     pw_get_endpoint_volume_range,
+    pw_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -2431,6 +2508,24 @@ static NTSTATUS pw_wow64_get_endpoint_volume(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS pw_wow64_set_default_endpoint(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        HRESULT result;
+    } *p32 = args;
+    struct set_default_endpoint_params params =
+    {
+        .device = ULongToPtr(p32->device),
+        .flow = p32->flow,
+    };
+    pw_set_default_endpoint(&params);
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS pw_wow64_get_endpoint_volume_range(void *args)
 {
     struct
@@ -2497,6 +2592,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pw_wow64_set_endpoint_volume,
     pw_wow64_get_endpoint_volume,
     pw_wow64_get_endpoint_volume_range,
+    pw_wow64_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);

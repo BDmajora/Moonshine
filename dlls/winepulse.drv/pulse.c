@@ -2545,6 +2545,13 @@ static NTSTATUS pulse_get_endpoint_volume_range(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS pulse_set_default_endpoint(void *args)
+{
+    struct set_default_endpoint_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     pulse_process_attach,
@@ -2587,6 +2594,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pulse_set_endpoint_volume,
     pulse_get_endpoint_volume,
     pulse_get_endpoint_volume_range,
+    pulse_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -3076,6 +3084,18 @@ static NTSTATUS pulse_wow64_get_endpoint_volume(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS pulse_wow64_set_default_endpoint(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS pulse_wow64_get_endpoint_volume_range(void *args)
 {
     struct
@@ -3133,6 +3153,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pulse_wow64_set_endpoint_volume,
     pulse_wow64_get_endpoint_volume,
     pulse_wow64_get_endpoint_volume_range,
+    pulse_wow64_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);

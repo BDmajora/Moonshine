@@ -345,6 +345,15 @@ struct get_endpoint_volume_range_params
     HRESULT result;
 };
 
+/* Phase 2: make the backend's default endpoint follow mmdevapi's default
+ * (PipeWire: writes default.[configured.]audio.sink/source metadata). */
+struct set_default_endpoint_params
+{
+    const char *device;
+    EDataFlow flow;
+    HRESULT result;
+};
+
 enum unix_funcs
 {
     process_attach,
@@ -387,5 +396,6 @@ enum unix_funcs
     set_endpoint_volume,
     get_endpoint_volume,
     get_endpoint_volume_range,
+    set_default_endpoint,
     funcs_count
 };

@@ -2443,6 +2443,13 @@ static NTSTATUS alsa_get_endpoint_volume_range(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS alsa_set_default_endpoint(void *args)
+{
+    struct set_default_endpoint_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     alsa_process_attach,
@@ -2485,6 +2492,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     alsa_set_endpoint_volume,
     alsa_get_endpoint_volume,
     alsa_get_endpoint_volume_range,
+    alsa_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -2934,6 +2942,18 @@ static NTSTATUS alsa_wow64_get_endpoint_volume(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS alsa_wow64_set_default_endpoint(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS alsa_wow64_get_endpoint_volume_range(void *args)
 {
     struct
@@ -2991,6 +3011,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     alsa_wow64_set_endpoint_volume,
     alsa_wow64_get_endpoint_volume,
     alsa_wow64_get_endpoint_volume_range,
+    alsa_wow64_set_default_endpoint,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);

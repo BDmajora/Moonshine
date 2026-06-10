@@ -628,6 +628,7 @@ static HRESULT set_format(MMDevice *dev)
     IAudioClient *client;
     WAVEFORMATEX *fmt;
     PROPVARIANT pv = { VT_EMPTY };
+    PROPVARIANT existing = { VT_EMPTY };
 
     hr = AudioClient_Create(&dev->devguid, &dev->IMMDevice_iface, &client);
     if(FAILED(hr))
@@ -644,8 +645,17 @@ static HRESULT set_format(MMDevice *dev)
     pv.vt = VT_BLOB;
     pv.blob.cbSize = sizeof(WAVEFORMATEX) + fmt->cbSize;
     pv.blob.pBlobData = (BYTE*)fmt;
-    MMDevice_SetPropValue(&dev->devguid, dev->flow,
-            &PKEY_AudioEngine_DeviceFormat, &pv);
+
+    /* DeviceFormat is the *current* format and may have been overridden by
+     * the user (Advanced tab). Only seed it when absent so the override
+     * survives re-enumeration/reboot. OEMFormat is the driver's native
+     * format and is always refreshed. */
+    if (FAILED(MMDevice_GetPropValue(&dev->devguid, dev->flow,
+            &PKEY_AudioEngine_DeviceFormat, &existing)) || existing.vt != VT_BLOB)
+        MMDevice_SetPropValue(&dev->devguid, dev->flow,
+                &PKEY_AudioEngine_DeviceFormat, &pv);
+    PropVariantClear(&existing);
+
     MMDevice_SetPropValue(&dev->devguid, dev->flow,
             &PKEY_AudioEngine_OEMFormat, &pv);
     CoTaskMemFree(fmt);
@@ -1333,6 +1343,101 @@ static BOOL notify_if_changed(EDataFlow flow, ERole role, HKEY key,
     CoTaskMemFree(id);
 
     return TRUE;
+}
+
+/***********************************************************************
+ *      SetDefaultAudioEndpoint (MMDEVAPI.@)  — Wine/YetiOS extension
+ *
+ * Windows exposes default switching only through the undocumented
+ * IPolicyConfig; this fork exposes it as a flat export instead, used by
+ * mmsys.cpl / sndvol. Persists the choice in the same registry value
+ * GetDefaultAudioEndpoint and the notification watcher already read
+ * (HKCU\Software\Wine\Drivers\<module>\Default{Output,Input,Voice*}),
+ * so existing readers and OnDefaultDeviceChanged delivery work unchanged,
+ * and pushes the change down to the backend (PipeWire default metadata).
+ *
+ * id == NULL or empty reverts to the system (driver-reported) default.
+ */
+HRESULT WINAPI SetDefaultAudioEndpoint(const WCHAR *id, EDataFlow flow, ERole role)
+{
+    const WCHAR *val_name;
+    WCHAR reg_key[256];
+    MMDevice *impl, *found = NULL;
+    HKEY key;
+    LSTATUS ret;
+
+    TRACE("(%s, %u, %u)\n", debugstr_w(id), flow, role);
+
+    if (flow != eRender && flow != eCapture)
+        return E_INVALIDARG;
+    if (role != eConsole && role != eMultimedia && role != eCommunications)
+        return E_INVALIDARG;
+    if (!drvs.module_name[0])
+        return E_NOTFOUND;
+
+    if (role == eCommunications)
+        val_name = (flow == eRender) ? L"DefaultVoiceOutput" : L"DefaultVoiceInput";
+    else
+        val_name = (flow == eRender) ? L"DefaultOutput" : L"DefaultInput";
+
+    /* Validate the device id against the live list (unless reverting). */
+    if (id && id[0]) {
+        /* device_list is iterated without a lock elsewhere too
+         * (MMDevEnum_GetDevice); keep the same convention. */
+        LIST_FOR_EACH_ENTRY(impl, &device_list, MMDevice, entry) {
+            WCHAR cur_id[56];
+            GUID *g = &impl->devguid;
+            if (impl->flow != flow) continue;
+            wsprintfW(cur_id, L"{0.0.%u.00000000}.{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+                      impl->flow, g->Data1, g->Data2, g->Data3,
+                      g->Data4[0], g->Data4[1], g->Data4[2], g->Data4[3],
+                      g->Data4[4], g->Data4[5], g->Data4[6], g->Data4[7]);
+            if (!lstrcmpW(cur_id, id)) {
+                found = impl;
+                break;
+            }
+        }
+        if (!found)
+            return E_NOTFOUND;
+    }
+
+    lstrcpyW(reg_key, drv_keyW);
+    lstrcatW(reg_key, L"\\");
+    lstrcatW(reg_key, drvs.module_name);
+
+    ret = RegCreateKeyExW(HKEY_CURRENT_USER, reg_key, 0, NULL, 0,
+                          KEY_WRITE | KEY_WOW64_64KEY, NULL, &key, NULL);
+    if (ret != ERROR_SUCCESS)
+        return HRESULT_FROM_WIN32(ret);
+
+    if (id && id[0])
+        ret = RegSetValueExW(key, val_name, 0, REG_SZ, (const BYTE *)id,
+                             (lstrlenW(id) + 1) * sizeof(WCHAR));
+    else
+        ret = RegDeleteValueW(key, val_name);
+    RegCloseKey(key);
+
+    if (ret != ERROR_SUCCESS && ret != ERROR_FILE_NOT_FOUND)
+        return HRESULT_FROM_WIN32(ret);
+
+    /* Push the change to the backend so the server's own default follows
+     * (console/multimedia only; communications is a Windows-side role). */
+    if (role != eCommunications) {
+        struct set_default_endpoint_params params;
+        char *dev_name = NULL;
+        EDataFlow dev_flow = flow;
+
+        if (found && get_device_name_from_guid(&found->devguid, &dev_name, &dev_flow)) {
+            params.device = dev_name;
+            params.flow = flow;
+            __wine_unix_call(drvs.module_unixlib, set_default_endpoint, &params);
+            free(dev_name);
+        }
+    }
+
+    /* OnDefaultDeviceChanged is fired by the registry watcher thread in
+     * every process that registered a notification callback. */
+    return S_OK;
 }
 
 static DWORD WINAPI notif_thread_proc(void *user)

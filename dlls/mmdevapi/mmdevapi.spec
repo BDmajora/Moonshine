@@ -23,6 +23,7 @@
 ##################
 # Wine extensions
 #
+@ stdcall SetDefaultAudioEndpoint(wstr long long)
 @ stdcall -private DriverProc(long long long long long)
 @ stdcall -private auxMessage(long long long long long)
 @ stdcall -private midMessage(long long long long long)

@@ -941,6 +941,41 @@ static HRESULT WINAPI client_GetMixFormat(IAudioClient3 *iface, WAVEFORMATEX **p
 
     *pwfx = NULL;
 
+    /* The endpoint property store's PKEY_AudioEngine_DeviceFormat is the
+     * authoritative current format: it is seeded from the driver on first
+     * enumeration (devenum set_format) and may afterwards be overridden by
+     * the user (Sound panel, Advanced tab). Consult it before the driver so
+     * the override is honored; fall back to the driver if absent/invalid. */
+    if (This->parent) {
+        /* PKEY_AudioEngine_DeviceFormat = {f19f064d-082c-4e27-bc73-6882a1bb8e4c},0 */
+        static const PROPERTYKEY device_format_key = {
+            {0xf19f064d, 0x082c, 0x4e27, {0xbc, 0x73, 0x68, 0x82, 0xa1, 0xbb, 0x8e, 0x4c}}, 0
+        };
+        IPropertyStore *store;
+
+        if (SUCCEEDED(IMMDevice_OpenPropertyStore(This->parent, STGM_READ, &store))) {
+            PROPVARIANT pv;
+            PropVariantInit(&pv);
+            if (SUCCEEDED(IPropertyStore_GetValue(store, &device_format_key, &pv)) &&
+                pv.vt == VT_BLOB && pv.blob.pBlobData &&
+                pv.blob.cbSize >= sizeof(WAVEFORMATEX)) {
+                const WAVEFORMATEX *stored = (const WAVEFORMATEX *)pv.blob.pBlobData;
+                if (pv.blob.cbSize >= sizeof(WAVEFORMATEX) + stored->cbSize) {
+                    WAVEFORMATEX *fmt = CoTaskMemAlloc(sizeof(WAVEFORMATEX) + stored->cbSize);
+                    if (fmt) {
+                        memcpy(fmt, stored, sizeof(WAVEFORMATEX) + stored->cbSize);
+                        *pwfx = fmt;
+                        dump_fmt(*pwfx);
+                    }
+                }
+            }
+            PropVariantClear(&pv);
+            IPropertyStore_Release(store);
+            if (*pwfx)
+                return S_OK;
+        }
+    }
+
     params.device = This->device_name;
     params.flow   = This->dataflow;
     params.fmt    = CoTaskMemAlloc(sizeof(WAVEFORMATEXTENSIBLE));
