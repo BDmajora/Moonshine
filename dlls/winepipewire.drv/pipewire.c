@@ -246,14 +246,6 @@ static int muldiv(int a, int b, int c)
     return ret;
 }
 
-static char *wstr_to_str(const WCHAR *wstr)
-{
-    const int len = wcslen(wstr);
-    char *str = malloc(len * 3 + 1);
-    ntdll_wcstoumbs(wstr, len + 1, str, len * 3 + 1, FALSE);
-    return str;
-}
-
 static void free_phys_device_lists(void)
 {
     static struct list *const lists[] = { &g_phys_speakers, &g_phys_sources, NULL };
@@ -896,7 +888,6 @@ static void on_capture_process(void *userdata)
     struct pw_audio_stream *stream = userdata;
     struct pw_buffer *pwbuf;
     struct spa_buffer *buf;
-    UINT32 fsize = frame_size(&stream->ss);
     BYTE *src;
     UINT32 src_bytes, rem, copy;
 

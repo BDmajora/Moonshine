@@ -2518,6 +2518,33 @@ static NTSTATUS pulse_midi_get_driver(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Endpoint (device-level) master volume — part of the shared mmdevapi unix
+ * ABI (set_endpoint_volume / get_endpoint_volume / get_endpoint_volume_range).
+ * Implemented for real only by winepipewire.drv (PipeWire node volume).
+ * Pulse has no wired equivalent here, so report E_NOTIMPL honestly;
+ * mmdevapi's IAudioEndpointVolume degrades to defaults. These must write
+ * params->result — pulse_not_implemented would leave it uninitialized. */
+static NTSTATUS pulse_set_endpoint_volume(void *args)
+{
+    struct set_endpoint_volume_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pulse_get_endpoint_volume(void *args)
+{
+    struct get_endpoint_volume_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pulse_get_endpoint_volume_range(void *args)
+{
+    struct get_endpoint_volume_range_params *params = args;
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     pulse_process_attach,
@@ -2557,6 +2584,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pulse_not_implemented,
     pulse_not_implemented,
     pulse_not_implemented,
+    pulse_set_endpoint_volume,
+    pulse_get_endpoint_volume,
+    pulse_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -3015,6 +3045,52 @@ static NTSTATUS pulse_wow64_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
+/* 32-bit layouts differ from the 64-bit structs (PTR32 device/out pointers),
+ * so result sits at a different offset — hence dedicated thunks even for
+ * E_NOTIMPL. */
+static NTSTATUS pulse_wow64_set_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        float level;
+        int mute;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pulse_wow64_get_endpoint_volume(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 level;
+        PTR32 mute;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pulse_wow64_get_endpoint_volume_range(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 min_db;
+        PTR32 max_db;
+        PTR32 inc_db;
+        HRESULT result;
+    } *params32 = args;
+    params32->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     pulse_process_attach,
@@ -3054,6 +3130,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pulse_not_implemented,
     pulse_not_implemented,
     pulse_not_implemented,
+    pulse_wow64_set_endpoint_volume,
+    pulse_wow64_get_endpoint_volume,
+    pulse_wow64_get_endpoint_volume_range,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
