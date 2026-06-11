@@ -361,12 +361,16 @@ static void pw_add_device(struct list *list, const struct spa_dict *props,
 
     if (!desc || !desc[0])
         desc = node_name;
-    wlen = ntdll_umbstowcs(desc, strlen(desc) + 1, NULL, 0);
-    if (!(dev->name = malloc(wlen * sizeof(WCHAR)))) {
+    /* ntdll_umbstowcs has no NULL-dst length-query mode: allocate strlen+1
+     * WCHARs, convert strlen bytes, NUL-terminate manually (the winepulse
+     * get_device_name pattern). */
+    wlen = strlen(desc);
+    if (!(dev->name = malloc((wlen + 1) * sizeof(WCHAR)))) {
         free(dev);
         return;
     }
-    ntdll_umbstowcs(desc, strlen(desc) + 1, dev->name, wlen);
+    wlen = ntdll_umbstowcs(desc, wlen, dev->name, wlen);
+    dev->name[wlen] = 0;
 
     dev->form = form;
     dev->index = index;
