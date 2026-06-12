@@ -154,7 +154,6 @@ static void AudioEndpointVolume_Destroy(AEVImpl *This)
     }
     LeaveCriticalSection(&This->lock);
 
-    This->lock.DebugInfo->Spare[0] = 0;
     DeleteCriticalSection(&This->lock);
     free(This->device);
     free(This);
@@ -480,7 +479,6 @@ HRESULT AudioEndpointVolume_Create(MMDevice *parent, IAudioEndpointVolumeEx **pp
     This->flow = parent->flow;
     list_init(&This->notifications);
     InitializeCriticalSection(&This->lock);
-    This->lock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": AEVImpl.lock");
 
     /* Resolve the backend device name for this endpoint. On failure we leave
      * device NULL, and the driver operates on the default endpoint. */
