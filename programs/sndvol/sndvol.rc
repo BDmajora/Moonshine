@@ -1,0 +1,13 @@
+/* sndvol.exe — resources. */
+
+#include "windef.h"
+#include "winuser.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+/* Application icon (referenced by ICO_SNDVOL == 100 in sndvol.c) */
+100 ICON sndvol.ico
+
+/* Manifest resource id 1 is applied automatically to executables —
+ * enables comctl32 v6 visuals for the trackbars/checkboxes. */
+1 RT_MANIFEST sndvol.manifest
