@@ -963,10 +963,15 @@ static void on_render_process(void *userdata)
     if (!dst) { pw_stream_queue_buffer(stream->stream, pwbuf); return; }
 
     req = buf->datas[0].maxsize / fsize;
-#ifdef SPA_VERSION_BUFFER
+    /* Honour the per-cycle frame count PipeWire actually asks for. PipeWire
+     * sizes the mapped data buffer to the *max* quantum, which is far larger
+     * than the current quantum, so filling maxsize instead of `requested`
+     * buries the real audio under silence padding every cycle (the zero-audio
+     * bug). `requested` has been a stable pw_buffer field since 0.3.49; the
+     * previous `#ifdef SPA_VERSION_BUFFER` guard referenced a macro that no SPA
+     * header defines, so this clamp was dead code. */
     if (pwbuf->requested && pwbuf->requested < req)
-        req = pwbuf->requested;
-#endif
+        req = (UINT32)pwbuf->requested;
     avail = stream->held_bytes / fsize;
     to_copy = min(req, avail);
 
@@ -1115,13 +1120,18 @@ static HRESULT stream_connect(struct pw_audio_stream *stream, const char *node_n
 
     params[0] = build_format_pod(stream, &b);
 
+    /* No PW_STREAM_FLAG_RT_PROCESS: without it the process callback runs on
+     * the pw_thread_loop thread with the loop lock held — which is exactly the
+     * serialization the ring-buffer accounting (held_bytes, lcl_offs_bytes)
+     * relies on against the pw_lock()-protected unix-call side. With RT_PROCESS
+     * the callback runs unlocked on the realtime data thread and races it,
+     * producing torn reads and spurious underruns. */
     res = pw_stream_connect(stream->stream,
                             (stream->dataflow == eRender) ? PW_DIRECTION_OUTPUT
                                                           : PW_DIRECTION_INPUT,
                             PW_ID_ANY,
                             PW_STREAM_FLAG_AUTOCONNECT |
-                            PW_STREAM_FLAG_MAP_BUFFERS |
-                            PW_STREAM_FLAG_RT_PROCESS,
+                            PW_STREAM_FLAG_MAP_BUFFERS,
                             params, 1);
     if (res < 0) {
         WARN("pw_stream_connect failed: %s\n", spa_strerror(res));
