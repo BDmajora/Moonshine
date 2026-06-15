@@ -1749,6 +1749,7 @@ enable_servicemodelreg
 enable_services
 enable_setx
 enable_shutdown
+enable_sndvol
 enable_solitaire
 enable_sort
 enable_spoolsv
@@ -23476,6 +23477,7 @@ wine_fn_config_makefile programs/services enable_services
 wine_fn_config_makefile programs/services/tests enable_tests
 wine_fn_config_makefile programs/setx enable_setx
 wine_fn_config_makefile programs/shutdown enable_shutdown
+wine_fn_config_makefile programs/sndvol enable_sndvol
 wine_fn_config_makefile programs/solitaire enable_solitaire
 wine_fn_config_makefile programs/sort enable_sort
 wine_fn_config_makefile programs/spoolsv enable_spoolsv
