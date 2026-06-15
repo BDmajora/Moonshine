@@ -437,28 +437,33 @@ static void build_endpoint_name(const struct spa_dict *props, EDataFlow flow,
     snprintf(buf, size, "%s (%s)", endpoint, adapter);
 }
 
-/* Only real hardware endpoints are exposed — the pipewire-pulse compat
- * nodes ("PulseAudio Output/Input"), monitors, loopbacks, and other
- * virtual nodes are PipeWire plumbing with no Windows equivalent. */
+/* A node is a usable Windows endpoint unless it's PipeWire plumbing. The
+ * caller has already narrowed us to Audio/Sink | Audio/Source, so the only
+ * things to drop are the non-hardware ones: monitor sources (they mirror a
+ * sink) and the pipewire-pulse compat nodes. Everything else the graph
+ * exposes is a real endpoint, exactly as Windows would list it.
+ *
+ * (Was an allowlist keyed on device.api / api.alsa.* — but WirePlumber's
+ * adapter sink doesn't carry those on its own registry entry, so the real
+ * sink was filtered out and only the synthetic placeholder survived, leaving
+ * endpoint volume bound to node_id 0.) */
 static BOOL is_hardware_node(const struct spa_dict *props, const char *node_name)
 {
-    const char *api = spa_dict_lookup(props, PW_KEY_DEVICE_API);
-    size_t len;
+    const char *desc;
+    size_t len = strlen(node_name);
 
     /* Monitor sources mirror a sink; never a Windows endpoint. */
-    len = strlen(node_name);
     if (len >= 8 && !strcmp(node_name + len - 8, ".monitor"))
         return FALSE;
 
-    if (api && (!strcmp(api, "alsa") || !strcmp(api, "bluez5")))
-        return TRUE;
+    /* pipewire-pulse compatibility nodes are plumbing, not hardware. */
+    if (!strncmp(node_name, "PulseAudio ", 11))
+        return FALSE;
+    desc = spa_dict_lookup(props, PW_KEY_NODE_DESCRIPTION);
+    if (desc && !strncmp(desc, "PulseAudio ", 11))
+        return FALSE;
 
-    /* Some ALSA nodes carry api.alsa.* without device.api. */
-    if (spa_dict_lookup(props, "api.alsa.path") ||
-        spa_dict_lookup(props, "api.alsa.pcm.card"))
-        return TRUE;
-
-    return FALSE;
+    return TRUE;
 }
 
 static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
