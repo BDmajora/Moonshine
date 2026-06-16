@@ -20,6 +20,7 @@ SOURCES = \
 	amvideo.idl \
 	appcompatapi.h \
 	appmgmt.h \
+	appmixer.h \
 	appmodel.h \
 	appnotify.h \
 	asferr.h \
