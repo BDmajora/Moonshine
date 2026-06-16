@@ -124,6 +124,7 @@ extern HRESULT AudioClient_Create(GUID *guid, IMMDevice *device, IAudioClient **
 extern HRESULT AudioEndpointVolume_Create(MMDevice *parent, IAudioEndpointVolumeEx **ppv);
 extern HRESULT AudioSessionManager_Create(IMMDevice *device, IAudioSessionManager2 **ppv);
 extern HRESULT SpatialAudioClient_Create(IMMDevice *device, ISpatialAudioClient **out);
+extern HRESULT AppMixer_Create(IMMDevice *device, void **ppv);
 
 extern BOOL get_device_name_from_guid( const GUID *guid, char **name, EDataFlow *flow );
 extern HRESULT load_devices_from_reg(void);

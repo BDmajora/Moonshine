@@ -1,5 +1,5 @@
 /*
- * PipeWire WASAPI backend for YetiOS (winepipewire.drv)
+ * PipeWire WASAPI backend (winepipewire.drv)
  *
  * Faithful port of winepulse.drv (pulse.c) to libpipewire-0.3.
  * The ring-buffer bookkeeping is carried over from pulse.c verbatim
@@ -14,7 +14,7 @@
  *   pa_stream_write (push)         ->  on_process pull (dequeue/queue buffer)
  *   pa_stream_peek/drop            ->  on_process push into packet ring
  *
- * Copyright 2025 YetiOS contributors
+ * Copyright 2025 the authors
  * Derived from winepulse.drv:
  *   Copyright 2011-2012 Maarten Lankhorst
  *   Copyright 2010-2011 Maarten Lankhorst for CodeWeavers
@@ -466,6 +466,71 @@ static BOOL is_hardware_node(const struct spa_dict *props, const char *node_name
     return TRUE;
 }
 
+/* ------------------------------------------------------------------ *
+ *  Phase 3: live playback-stream graph, coalesced by application      *
+ * ------------------------------------------------------------------ */
+
+#define APP_KEY_LEN 128
+
+struct app_stream
+{
+    struct list entry;
+    UINT  node_id;                 /* registry global id, bindable */
+    char  app[APP_KEY_LEN];        /* coalescing key == display label (UTF-8) */
+};
+
+struct app_group
+{
+    struct list entry;
+    UINT  id;
+    char  app[APP_KEY_LEN];
+};
+
+static struct list g_streams      = LIST_INIT(g_streams);
+static struct list g_app_groups   = LIST_INIT(g_app_groups);
+static UINT        g_next_group_id = 1;
+
+/* Caller holds the loop lock. Stable id per distinct app string. */
+static UINT group_id_for_app(const char *app)
+{
+    struct app_group *g;
+    LIST_FOR_EACH_ENTRY(g, &g_app_groups, struct app_group, entry)
+        if (!strcmp(g->app, app)) return g->id;
+    if (!(g = malloc(sizeof(*g)))) return 0;
+    g->id = g_next_group_id++;
+    snprintf(g->app, sizeof(g->app), "%s", app);
+    list_add_tail(&g_app_groups, &g->entry);
+    return g->id;
+}
+
+static const char *app_for_group_id(UINT id)
+{
+    struct app_group *g;
+    LIST_FOR_EACH_ENTRY(g, &g_app_groups, struct app_group, entry)
+        if (g->id == id) return g->app;
+    return NULL;
+}
+
+/* Clean per-application label. application.name first (Firefox sets
+ * "Firefox"; the create path below sets the Windows app's product name),
+ * then process binary, then media/node name. Never node.description, never
+ * the raw backend plumbing strings. */
+static void stream_app_label(const struct spa_dict *props, char *buf, size_t size)
+{
+    const char *s = spa_dict_lookup(props, PW_KEY_APP_NAME);
+    if (!s || !s[0]) s = spa_dict_lookup(props, PW_KEY_APP_PROCESS_BINARY);
+    if (!s || !s[0]) s = spa_dict_lookup(props, PW_KEY_MEDIA_NAME);
+    if (!s || !s[0]) s = spa_dict_lookup(props, PW_KEY_NODE_NAME);
+    if (!s || !s[0]) s = "Application";
+    snprintf(buf, size, "%s", s);
+    {
+        size_t l = strlen(buf);
+        if (l > 4 && (!strcmp(buf + l - 4, ".exe") || !strcmp(buf + l - 4, ".EXE")))
+            buf[l - 4] = 0;
+        if (buf[0] >= 'a' && buf[0] <= 'z') buf[0] -= 32;
+    }
+}
+
 static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
                                const char *type, uint32_t version,
                                const struct spa_dict *props)
@@ -495,6 +560,19 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
     if (!node_name)
         return;
 
+    /* Playback streams become per-application rows in the volume mixer.
+     * Handled before is_hardware_node (that filter is for device nodes). */
+    if (!strcmp(media_class, "Stream/Output/Audio")) {
+        struct app_stream *st;
+        if ((st = malloc(sizeof(*st)))) {
+            st->node_id = id;
+            stream_app_label(props, st->app, sizeof(st->app));
+            list_add_tail(&g_streams, &st->entry);
+            TRACE("playback stream %u: %s\n", id, st->app);
+        }
+        return;
+    }
+
     if (!is_hardware_node(props, node_name)) {
         TRACE("hiding non-hardware node %s\n", node_name);
         return;
@@ -520,8 +598,15 @@ static void on_registry_global(void *data, uint32_t id, uint32_t permissions,
 
 static void on_registry_global_remove(void *data, uint32_t id)
 {
-    /* Endpoints are rebuilt on each test_connect; nothing to do here for
-     * the static lists. A live hot-plug path would remove by id. */
+    struct app_stream *st, *next;
+    LIST_FOR_EACH_ENTRY_SAFE(st, next, &g_streams, struct app_stream, entry) {
+        if (st->node_id == id) {
+            list_remove(&st->entry);
+            free(st);
+            break;
+        }
+    }
+    /* Device lists stay static (rebuilt per test_connect); see note above. */
 }
 
 static const struct pw_registry_events registry_events = {
@@ -567,7 +652,7 @@ static HRESULT ensure_loop(void)
     if (pw_loop)
         return S_OK;
 
-    pw_loop = pw_thread_loop_new("yetios-audio", NULL);
+    pw_loop = pw_thread_loop_new("winepipewire", NULL);
     if (!pw_loop) {
         ERR("pw_thread_loop_new failed\n");
         return E_FAIL;
@@ -1085,7 +1170,8 @@ static const struct pw_stream_events capture_stream_events = {
 };
 
 /* Caller holds the loop lock. */
-static HRESULT stream_connect(struct pw_audio_stream *stream, const char *node_name)
+static HRESULT stream_connect(struct pw_audio_stream *stream,
+                              const char *node_name, const char *app_name)
 {
     uint8_t buffer[1024];
     struct spa_pod_builder b = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
@@ -1093,13 +1179,15 @@ static HRESULT stream_connect(struct pw_audio_stream *stream, const char *node_n
     struct pw_properties *props;
     enum pw_stream_state st;
     const char *role = (stream->dataflow == eRender) ? "Music" : "Production";
+    const char *app = (app_name && app_name[0]) ? app_name : "Application";
     int res;
 
     props = pw_properties_new(
         PW_KEY_MEDIA_TYPE,     "Audio",
         PW_KEY_MEDIA_CATEGORY, (stream->dataflow == eRender) ? "Playback" : "Capture",
         PW_KEY_MEDIA_ROLE,     role,
-        PW_KEY_APP_NAME,       "YetiOS",
+        PW_KEY_APP_NAME,       app,
+        PW_KEY_MEDIA_NAME,     app,
         NULL);
     if (!props)
         return E_OUTOFMEMORY;
@@ -1113,7 +1201,7 @@ static HRESULT stream_connect(struct pw_audio_stream *stream, const char *node_n
                        (unsigned)(stream->period_bytes / frame_size(&stream->ss)),
                        stream->ss.rate);
 
-    stream->stream = pw_stream_new(pw_core, "YetiOS audio stream", props);
+    stream->stream = pw_stream_new(pw_core, app, props);
     if (!stream->stream)
         return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
 
@@ -1211,7 +1299,24 @@ static NTSTATUS pw_create_stream(void *args)
     stream->share = params->share;
     stream->flags = params->flags;
 
-    hr = stream_connect(stream, params->device);
+    {
+        char app_utf8[APP_KEY_LEN] = {0};
+        if (params->name) {
+            DWORD wl = 0;
+            int cn;
+            while (params->name[wl]) wl++;
+            cn = ntdll_wcstoumbs(params->name, wl, app_utf8, sizeof(app_utf8) - 1, FALSE);
+            if (cn < 0) cn = 0;
+            app_utf8[cn] = 0;
+            {
+                size_t l = strlen(app_utf8);
+                if (l > 4 && (!strcmp(app_utf8 + l - 4, ".exe") || !strcmp(app_utf8 + l - 4, ".EXE")))
+                    app_utf8[l - 4] = 0;
+                if (app_utf8[0] >= 'a' && app_utf8[0] <= 'z') app_utf8[0] -= 32;
+            }
+        }
+        hr = stream_connect(stream, params->device, app_utf8);
+    }
     if (SUCCEEDED(hr)) {
         SIZE_T size;
         if (stream->dataflow == eRender) {
@@ -2172,6 +2277,103 @@ static NTSTATUS pw_set_default_endpoint(void *args)
 }
 
 /* ------------------------------------------------------------------ *
+ *  Phase 3: per-application playback mixer                            *
+ * ------------------------------------------------------------------ */
+
+static NTSTATUS pw_get_playback_streams(void *args)
+{
+    struct get_playback_streams_params *params = args;
+    struct app_stream *st;
+    unsigned int n = 0;
+
+    pw_lock();
+    LIST_FOR_EACH_ENTRY(st, &g_streams, struct app_stream, entry) {
+        struct stream_info *si;
+        unsigned int j;
+        UINT gid = group_id_for_app(st->app);
+        BOOL seen = FALSE;
+
+        for (j = 0; j < n && j < params->max; j++)
+            if (params->streams[j].id == gid) { seen = TRUE; break; }
+        if (seen) continue;
+
+        if (n >= params->max) { n++; continue; }   /* report true count */
+
+        si = &params->streams[n];
+        si->id = gid;
+        si->volume = 1.0f;
+        si->mute = 0;
+        node_get_props(st->node_id, &si->volume, &si->mute, NULL);
+        if (si->mute < 0) si->mute = 0;
+        {
+            int wl = ntdll_umbstowcs(st->app, strlen(st->app), si->name, STREAM_NAME_LEN - 1);
+            if (wl < 0) wl = 0;
+            si->name[wl] = 0;
+        }
+        n++;
+    }
+    pw_unlock();
+
+    params->count = n;
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_get_stream_volume(void *args)
+{
+    struct get_stream_volume_params *params = args;
+    const char *app;
+    struct app_stream *st;
+    float vol = 1.0f;
+    int mute = 0;
+    BOOL found = FALSE;
+
+    pw_lock();
+    if ((app = app_for_group_id(params->id))) {
+        LIST_FOR_EACH_ENTRY(st, &g_streams, struct app_stream, entry)
+            if (!strcmp(st->app, app)) {        /* representative member */
+                node_get_props(st->node_id, &vol, &mute, NULL);
+                found = TRUE;
+                break;
+            }
+    }
+    pw_unlock();
+
+    if (!found) { params->result = E_FAIL; return STATUS_SUCCESS; }
+    if (params->level) *params->level = vol;
+    if (params->mute)  *params->mute  = (mute < 0) ? 0 : mute;
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_set_stream_volume(void *args)
+{
+    struct set_stream_volume_params *params = args;
+    const char *app;
+    struct app_stream *st;
+
+    pw_lock();
+    if ((app = app_for_group_id(params->id))) {
+        LIST_FOR_EACH_ENTRY(st, &g_streams, struct app_stream, entry) {
+            if (strcmp(st->app, app)) continue;     /* every node in the group */
+            if (params->level >= 0.0f) {
+                float vols[PW_CHANNELS_MAX];
+                uint32_t i, channels = 2;
+                node_get_props(st->node_id, NULL, NULL, &channels);
+                if (!channels || channels > PW_CHANNELS_MAX) channels = 2;
+                for (i = 0; i < channels; i++) vols[i] = params->level;
+                node_set_props(st->node_id, vols, channels, params->mute);
+            } else {
+                node_set_props(st->node_id, NULL, 0, params->mute);
+            }
+        }
+    }
+    pw_unlock();
+    params->result = app ? S_OK : E_FAIL;
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ *
  *  Dispatch table (order MUST match enum unix_funcs)                  *
  * ------------------------------------------------------------------ */
 
@@ -2218,6 +2420,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     pw_get_endpoint_volume,
     pw_get_endpoint_volume_range,
     pw_set_default_endpoint,
+    pw_get_playback_streams,
+    pw_get_stream_volume,
+    pw_set_stream_volume,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -2671,6 +2876,34 @@ static NTSTATUS pw_wow64_get_endpoint_volume_range(void *args)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS pw_wow64_get_playback_streams(void *args)
+{
+    struct { PTR32 streams; unsigned int max; unsigned int count; HRESULT result; } *p32 = args;
+    struct get_playback_streams_params params =
+    {
+        .streams = ULongToPtr(p32->streams),   /* stream_info has no pointers */
+        .max = p32->max,
+    };
+    pw_get_playback_streams(&params);
+    p32->count = params.count;
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS pw_wow64_get_stream_volume(void *args)
+{
+    struct { unsigned int id; PTR32 level; PTR32 mute; HRESULT result; } *p32 = args;
+    struct get_stream_volume_params params =
+    {
+        .id = p32->id,
+        .level = ULongToPtr(p32->level),
+        .mute = ULongToPtr(p32->mute),
+    };
+    pw_get_stream_volume(&params);
+    p32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     pw_process_attach,
@@ -2714,6 +2947,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     pw_wow64_get_endpoint_volume,
     pw_wow64_get_endpoint_volume_range,
     pw_wow64_set_default_endpoint,
+    pw_wow64_get_playback_streams,
+    pw_wow64_get_stream_volume,
+    pw_set_stream_volume,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);

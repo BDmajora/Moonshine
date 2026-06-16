@@ -1,146 +1,182 @@
-/* sndvol.exe — audio session enumeration.
+/* sndvol.exe — per-application source enumeration.
  *
- * Snapshots the active audio sessions on an endpoint through
- * IAudioSessionManager2 -> IAudioSessionEnumerator. Each row carries the
- * ISimpleAudioVolume that the mixer sliders drive (mmdevapi applies it as
- * the per-stream session gain, which winepipewire.drv folds into
- * apply_volume on the stream — independent of the endpoint master).
+ * The Applications columns reflect the system playback graph, coalesced to
+ * one row per application (an app that opens several streams shows a single
+ * slider). Data comes from mmdevapi's IAppMixer, which surfaces every output
+ * stream — Windows-side or native — keyed by application.
  *
- * Labels follow the Windows mixer convention:
- *   - the system-sounds session is labelled "System Sounds"
- *   - otherwise IAudioSessionControl::GetDisplayName if the app set one
- *   - otherwise the owning process's image basename without extension
+ * Each row's slider/mute is driven through a small ISimpleAudioVolume that
+ * forwards to IAppMixer for that application group, so the window code is
+ * unchanged from the session-based version.
  */
 
 #include "sndvol_private.h"
+#include "appmixer.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(sndvol);
 
-static void label_from_pid(DWORD pid, WCHAR *label, size_t count)
+const GUID IID_IAppMixer =
+    { 0x7e71a000, 0x9c0f, 0x4d2e, { 0xb3, 0x55, 0x2a, 0x11, 0x76, 0x55, 0x4f, 0x01 } };
+
+/* ------------------------------------------------------------------ */
+/* Per-group ISimpleAudioVolume backed by IAppMixer                   */
+/* ------------------------------------------------------------------ */
+
+struct group_vol
 {
-    HANDLE proc;
-    WCHAR path[MAX_PATH];
-    DWORD len = ARRAY_SIZE(path);
-    const WCHAR *base, *p;
+    ISimpleAudioVolume ISimpleAudioVolume_iface;
+    LONG ref;
+    IAppMixer *mixer;          /* AddRef'd */
+    UINT id;
+    float fallback_vol;        /* used if a live read fails */
+    BOOL  fallback_mute;
+};
 
-    swprintf(label, count, L"Process %lu", pid);   /* fallback */
-
-    proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!proc) return;
-
-    if (QueryFullProcessImageNameW(proc, 0, path, &len))
-    {
-        base = path;
-        for (p = path; *p; p++)
-            if (*p == '\\' || *p == '/') base = p + 1;
-        lstrcpynW(label, base, count);
-        /* strip ".exe" */
-        {
-            int l = lstrlenW(label);
-            if (l > 4 && !lstrcmpiW(label + l - 4, L".exe"))
-                label[l - 4] = 0;
-        }
-        /* capitalize first letter, mixer-style */
-        if (label[0] >= 'a' && label[0] <= 'z')
-            label[0] -= 32;
-    }
-    CloseHandle(proc);
+static inline struct group_vol *impl_from_ISimpleAudioVolume(ISimpleAudioVolume *iface)
+{
+    return CONTAINING_RECORD(iface, struct group_vol, ISimpleAudioVolume_iface);
 }
+
+static HRESULT WINAPI gv_QueryInterface(ISimpleAudioVolume *iface, REFIID riid, void **ppv)
+{
+    if (!ppv) return E_POINTER;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_ISimpleAudioVolume))
+        *ppv = iface;
+    else { *ppv = NULL; return E_NOINTERFACE; }
+    IUnknown_AddRef((IUnknown *)*ppv);
+    return S_OK;
+}
+
+static ULONG WINAPI gv_AddRef(ISimpleAudioVolume *iface)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    return InterlockedIncrement(&v->ref);
+}
+
+static ULONG WINAPI gv_Release(ISimpleAudioVolume *iface)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    ULONG ref = InterlockedDecrement(&v->ref);
+    if (!ref) {
+        if (v->mixer) IAppMixer_Release(v->mixer);
+        free(v);
+    }
+    return ref;
+}
+
+static HRESULT WINAPI gv_SetMasterVolume(ISimpleAudioVolume *iface, float level, const GUID *ctx)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    if (level < 0.f || level > 1.f) return E_INVALIDARG;
+    v->fallback_vol = level;
+    return IAppMixer_SetVolume(v->mixer, v->id, level);
+}
+
+static HRESULT WINAPI gv_GetMasterVolume(ISimpleAudioVolume *iface, float *level)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    float cur;
+    if (!level) return E_POINTER;
+    if (SUCCEEDED(IAppMixer_GetVolume(v->mixer, v->id, &cur, NULL)))
+        *level = v->fallback_vol = cur;
+    else
+        *level = v->fallback_vol;
+    return S_OK;
+}
+
+static HRESULT WINAPI gv_SetMute(ISimpleAudioVolume *iface, BOOL mute, const GUID *ctx)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    v->fallback_mute = mute;
+    return IAppMixer_SetMute(v->mixer, v->id, mute);
+}
+
+static HRESULT WINAPI gv_GetMute(ISimpleAudioVolume *iface, BOOL *mute)
+{
+    struct group_vol *v = impl_from_ISimpleAudioVolume(iface);
+    BOOL cur;
+    if (!mute) return E_POINTER;
+    if (SUCCEEDED(IAppMixer_GetVolume(v->mixer, v->id, NULL, &cur)))
+        *mute = v->fallback_mute = cur;
+    else
+        *mute = v->fallback_mute;
+    return S_OK;
+}
+
+static const ISimpleAudioVolumeVtbl group_vol_vtbl =
+{
+    gv_QueryInterface,
+    gv_AddRef,
+    gv_Release,
+    gv_SetMasterVolume,
+    gv_GetMasterVolume,
+    gv_SetMute,
+    gv_GetMute,
+};
+
+static ISimpleAudioVolume *group_vol_create(IAppMixer *mixer, UINT id,
+                                            float vol, BOOL mute)
+{
+    struct group_vol *v = calloc(1, sizeof(*v));
+    if (!v) return NULL;
+    v->ISimpleAudioVolume_iface.lpVtbl = &group_vol_vtbl;
+    v->ref = 1;
+    v->mixer = mixer;
+    IAppMixer_AddRef(mixer);
+    v->id = id;
+    v->fallback_vol = vol;
+    v->fallback_mute = mute;
+    return &v->ISimpleAudioVolume_iface;
+}
+
+/* ------------------------------------------------------------------ */
+/* Snapshot                                                           */
+/* ------------------------------------------------------------------ */
 
 int snapshot_sessions(IMMDevice *dev, struct session_info **out)
 {
-    IAudioSessionManager2 *mgr = NULL;
-    IAudioSessionEnumerator *list = NULL;
-    struct session_info *sessions = NULL;
-    int i, total = 0, count = 0;
+    IAppMixer *mixer = NULL;
+    appmixer_entry entries[MAX_SNAP];
+    struct session_info *sessions;
+    UINT count = 0, i;
     HRESULT hr;
 
     *out = NULL;
 
-    hr = IMMDevice_Activate(dev, &IID_IAudioSessionManager2,
-                            CLSCTX_INPROC_SERVER, NULL, (void **)&mgr);
-    if (FAILED(hr))
-    {
-        WARN("IAudioSessionManager2 activation failed: %08lx\n", hr);
+    hr = IMMDevice_Activate(dev, &IID_IAppMixer, CLSCTX_INPROC_SERVER,
+                            NULL, (void **)&mixer);
+    if (FAILED(hr)) {
+        WARN("IAppMixer activation failed: %08lx\n", hr);
         return -1;
     }
 
-    hr = IAudioSessionManager2_GetSessionEnumerator(mgr, &list);
-    IAudioSessionManager2_Release(mgr);
-    if (FAILED(hr))
-    {
-        WARN("GetSessionEnumerator failed: %08lx\n", hr);
+    hr = IAppMixer_GetStreams(mixer, MAX_SNAP, entries, &count);
+    if (FAILED(hr)) {
+        IAppMixer_Release(mixer);
+        return -1;
+    }
+    if (!count) {
+        IAppMixer_Release(mixer);
+        return 0;
+    }
+
+    sessions = calloc(count, sizeof(*sessions));
+    if (!sessions) {
+        IAppMixer_Release(mixer);
         return -1;
     }
 
-    IAudioSessionEnumerator_GetCount(list, &total);
-    if (total > 0)
-    {
-        sessions = calloc(total, sizeof(*sessions));
-        if (!sessions)
-        {
-            IAudioSessionEnumerator_Release(list);
-            return -1;
-        }
+    for (i = 0; i < count; i++) {
+        sessions[i].id = entries[i].id;
+        lstrcpynW(sessions[i].label, entries[i].name, ARRAY_SIZE(sessions[i].label));
+        sessions[i].volume = group_vol_create(mixer, entries[i].id,
+                                               entries[i].volume,
+                                               entries[i].mute ? TRUE : FALSE);
     }
 
-    for (i = 0; i < total; i++)
-    {
-        IAudioSessionControl *ctl = NULL;
-        IAudioSessionControl2 *ctl2 = NULL;
-        ISimpleAudioVolume *vol = NULL;
-        struct session_info *s = &sessions[count];
-        AudioSessionState state = AudioSessionStateExpired;
-        WCHAR *name = NULL;
-
-        if (FAILED(IAudioSessionEnumerator_GetSession(list, i, &ctl)))
-            continue;
-
-        IAudioSessionControl_GetState(ctl, &state);
-        if (state == AudioSessionStateExpired)
-        {
-            IAudioSessionControl_Release(ctl);
-            continue;
-        }
-
-        if (FAILED(IAudioSessionControl_QueryInterface(ctl,
-                &IID_IAudioSessionControl2, (void **)&ctl2)) ||
-            FAILED(IAudioSessionControl_QueryInterface(ctl,
-                &IID_ISimpleAudioVolume, (void **)&vol)))
-        {
-            if (ctl2) IAudioSessionControl2_Release(ctl2);
-            IAudioSessionControl_Release(ctl);
-            continue;
-        }
-        IAudioSessionControl_Release(ctl);
-
-        s->control = ctl2;
-        s->volume = vol;
-        IAudioSessionControl2_GetProcessId(ctl2, &s->pid);
-        s->system_sounds =
-            (IAudioSessionControl2_IsSystemSoundsSession(ctl2) == S_OK);
-
-        if (s->system_sounds)
-            lstrcpynW(s->label, L"System Sounds", ARRAY_SIZE(s->label));
-        else if (SUCCEEDED(IAudioSessionControl2_GetDisplayName(ctl2, &name)) &&
-                 name && name[0])
-        {
-            lstrcpynW(s->label, name, ARRAY_SIZE(s->label));
-            CoTaskMemFree(name);
-        }
-        else
-        {
-            if (name) CoTaskMemFree(name);
-            label_from_pid(s->pid, s->label, ARRAY_SIZE(s->label));
-        }
-
-        count++;
-    }
-
-    IAudioSessionEnumerator_Release(list);
-
+    IAppMixer_Release(mixer);   /* each row holds its own ref */
     *out = sessions;
-    return count;
+    return (int)count;
 }
 
 void free_sessions(struct session_info *sessions, int count)
@@ -148,10 +184,7 @@ void free_sessions(struct session_info *sessions, int count)
     int i;
     if (!sessions) return;
     for (i = 0; i < count; i++)
-    {
-        if (sessions[i].volume)  ISimpleAudioVolume_Release(sessions[i].volume);
-        if (sessions[i].control) IAudioSessionControl2_Release(sessions[i].control);
-    }
+        if (sessions[i].volume) ISimpleAudioVolume_Release(sessions[i].volume);
     free(sessions);
 }
 
@@ -161,7 +194,6 @@ BOOL sessions_equal(const struct session_info *a, int na,
     int i;
     if (na != nb) return FALSE;
     for (i = 0; i < na; i++)
-        if (a[i].pid != b[i].pid || a[i].system_sounds != b[i].system_sounds)
-            return FALSE;
+        if (a[i].id != b[i].id) return FALSE;
     return TRUE;
 }

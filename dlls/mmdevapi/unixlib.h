@@ -354,6 +354,43 @@ struct set_default_endpoint_params
     HRESULT result;
 };
 
+/* Phase 3: per-application playback mixer (sndvol). The driver coalesces
+ * PipeWire output streams by application; each group has a stable id, and
+ * volume/mute operate on every node in the group. */
+#define STREAM_NAME_LEN 64
+
+struct stream_info
+{
+    unsigned int id;        /* stable app-group id */
+    float        volume;    /* 0..1 */
+    int          mute;      /* 0/1 */
+    WCHAR        name[STREAM_NAME_LEN];   /* no pointers: identical 32/64 layout */
+};
+
+struct get_playback_streams_params
+{
+    struct stream_info *streams;   /* caller-allocated array */
+    unsigned int max;              /* capacity */
+    unsigned int count;            /* out: groups written */
+    HRESULT result;
+};
+
+struct get_stream_volume_params
+{
+    unsigned int id;
+    float *level;   /* out, may be NULL */
+    int   *mute;    /* out, may be NULL */
+    HRESULT result;
+};
+
+struct set_stream_volume_params
+{
+    unsigned int id;
+    float level;    /* 0..1; <0 leaves unchanged */
+    int   mute;     /* -1 leave, 0/1 set */
+    HRESULT result;
+};
+
 enum unix_funcs
 {
     process_attach,
@@ -397,5 +434,8 @@ enum unix_funcs
     get_endpoint_volume,
     get_endpoint_volume_range,
     set_default_endpoint,
+    get_playback_streams,
+    get_stream_volume,
+    set_stream_volume,
     funcs_count
 };

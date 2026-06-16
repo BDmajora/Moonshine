@@ -1,6 +1,6 @@
 /*
  * Copyright 2010 Maarten Lankhorst for CodeWeavers
- * Copyright 2025 YetiOS contributors (endpoint volume backend wiring)
+ * Copyright 2025 the authors (endpoint volume backend wiring)
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public

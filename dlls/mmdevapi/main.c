@@ -125,7 +125,7 @@ fail:
 
 static BOOL WINAPI init_driver(INIT_ONCE *once, void *param, void **context)
 {
-    /* YetiOS is PipeWire-exclusive: winepulse/wineoss/winecoreaudio are
+    /* This build is PipeWire-exclusive: winepulse/wineoss/winecoreaudio are
      * never selected. winealsa remains as the loud, obviously-raw fallback
      * so a PipeWire connection failure is visible instead of silently
      * masquerading behind the pulse compatibility layer. */

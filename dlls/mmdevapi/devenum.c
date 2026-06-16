@@ -37,6 +37,8 @@
 #include "audiopolicy.h"
 #include "spatialaudioclient.h"
 
+#include "appmixer.h"
+
 #include "mmdevapi_private.h"
 #include "devpkey.h"
 
@@ -834,6 +836,10 @@ static HRESULT WINAPI MMDevice_Activate(IMMDevice *iface, REFIID riid, DWORD cls
     {
         hr = SpatialAudioClient_Create(iface, (ISpatialAudioClient**)ppv);
     }
+    else if (IsEqualIID(riid, &IID_IAppMixer))
+    {
+        hr = AppMixer_Create(iface, ppv);
+    }
     else
         ERR("Invalid/unknown iid %s\n", debugstr_guid(riid));
 
@@ -1346,7 +1352,7 @@ static BOOL notify_if_changed(EDataFlow flow, ERole role, HKEY key,
 }
 
 /***********************************************************************
- *      SetDefaultAudioEndpoint (MMDEVAPI.@)  — Wine/YetiOS extension
+ *      SetDefaultAudioEndpoint (MMDEVAPI.@)  — Wine extension
  *
  * Windows exposes default switching only through the undocumented
  * IPolicyConfig; this fork exposes it as a flat export instead, used by

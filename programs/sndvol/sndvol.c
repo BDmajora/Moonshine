@@ -1,4 +1,4 @@
-/* sndvol.exe — Volume Mixer for YetiOS (Moonshine).
+/* sndvol.exe — Volume Mixer.
  *
  * Two faces, Windows 7 style:
  *
