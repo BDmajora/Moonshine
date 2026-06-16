@@ -1,5 +1,6 @@
 MODULE    = sndvol.exe
 IMPORTS   = ole32 user32 gdi32 comctl32 shell32 advapi32
+EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
 	mixer.c \
