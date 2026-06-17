@@ -1,0 +1,21 @@
+/* audiotray.exe — resources. */
+
+#include "audiotray.h"
+
+IDR_TRAYMENU MENU
+BEGIN
+    POPUP ""
+    BEGIN
+        MENUITEM "Open Volume Mixer",   IDM_MIXER
+        MENUITEM SEPARATOR
+        MENUITEM "Playback devices",    IDM_PLAYBACK
+        MENUITEM "Recording devices",   IDM_RECORDING
+        MENUITEM "Sounds",              IDM_SOUNDS
+    END
+END
+
+STRINGTABLE
+BEGIN
+    IDS_TIP_LEVEL  "%s: %d%%"
+    IDS_TIP_MUTED  "%s: Muted"
+END

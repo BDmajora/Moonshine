@@ -1348,6 +1348,24 @@ void handle_parent_notify( HWND hwnd, WPARAM wp )
     sync_taskbar_buttons();
 }
 
+/* Launch the notification-area applets that ship with the shell.  Fire and
+ * forget: each owns its lifetime and re-registers its icon on TaskbarCreated.
+ * audiotray.exe self-guards against a second instance, so re-entry here (e.g.
+ * an explorer restart) is harmless. */
+static void start_notification_applets(void)
+{
+    WCHAR cmd[] = L"audiotray.exe";
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+
+    if (CreateProcessW( NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))
+    {
+        CloseHandle( pi.hThread );
+        CloseHandle( pi.hProcess );
+    }
+    else ERR( "could not start audiotray.exe (%lu)\n", GetLastError() );
+}
+
 /* this function creates the listener window */
 void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_show_systray, BOOL arg_no_tray_items )
 {
@@ -1418,4 +1436,6 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
 
     if (enable_taskbar) do_show_systray();
     else do_hide_systray();
+
+    if (enable_taskbar) start_notification_applets();
 }
