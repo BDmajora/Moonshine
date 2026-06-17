@@ -2,6 +2,8 @@ MODULE    = audiotray.exe
 
 IMPORTS   = ole32 shell32 user32 gdi32
 
+EXTRADLLFLAGS = -mwindows
+
 SOURCES = \
 	audiotray.c \
 	audiotray.rc
