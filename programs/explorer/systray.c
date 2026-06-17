@@ -355,7 +355,12 @@ static POINT get_icon_pos( struct icon *icon )
 
     if (enable_taskbar)
     {
-        pos.x = tray_width - icon_cx * (icon->display + 1);
+        /* Icons sit to the LEFT of the clock.  Stock Wine has no clock here, so
+         * the original formula placed display 0 at the right edge — which now
+         * lands under the YetiOS clock STATIC and is never seen.  Reserve
+         * CLOCK_WIDTH, matching the area sync_taskbar_buttons() already keeps
+         * clear for task buttons. */
+        pos.x = tray_width - CLOCK_WIDTH - icon_cx * (icon->display + 1);
         pos.y = (tray_height - icon_cy) / 2;
     }
     else
