@@ -26,7 +26,6 @@ AC_ARG_ENABLE(sast,  AS_HELP_STRING([--enable-sast],[enable static application s
 AC_ARG_ENABLE(silent-rules, AS_HELP_STRING([--enable-silent-rules],[use silent build rules (override: "make V=1")]))
 AC_ARG_ENABLE(werror, AS_HELP_STRING([--enable-werror],[treat compilation warnings as errors]))
 
-AC_ARG_WITH(alsa,      AS_HELP_STRING([--without-alsa],[do not use the Alsa sound support]))
 AC_ARG_WITH(capi,      AS_HELP_STRING([--without-capi],[do not use CAPI (ISDN support)]))
 AC_ARG_WITH(coreaudio, AS_HELP_STRING([--without-coreaudio],[do not use the CoreAudio sound support]))
 AC_ARG_WITH(cups,      AS_HELP_STRING([--without-cups],[do not use CUPS]))
@@ -49,12 +48,10 @@ AC_ARG_WITH(netapi,    AS_HELP_STRING([--without-netapi],[do not use the Samba N
 AC_ARG_WITH(opencl,    AS_HELP_STRING([--without-opencl],[do not use OpenCL]),
             [if test "x$withval" = "xno"; then ac_cv_header_CL_cl_h=no; ac_cv_header_OpenCL_opencl_h=no; fi])
 AC_ARG_WITH(opengl,    AS_HELP_STRING([--without-opengl],[do not use OpenGL]))
-AC_ARG_WITH(oss,       AS_HELP_STRING([--without-oss],[do not use the OSS sound support]))
 AC_ARG_WITH(pcap,      AS_HELP_STRING([--without-pcap],[do not use the Packet Capture library]),
             [if test "x$withval" = "xno"; then ac_cv_header_pcap_pcap_h=no; fi])
 AC_ARG_WITH(pcsclite,  AS_HELP_STRING([--without-pcsclite],[do not use PCSC lite]))
 AC_ARG_WITH(pthread,   AS_HELP_STRING([--without-pthread],[do not use the pthread library]))
-AC_ARG_WITH(pulse,     AS_HELP_STRING([--without-pulse],[do not use PulseAudio sound support]))
 AC_ARG_WITH(sane,      AS_HELP_STRING([--without-sane],[do not use SANE (scanner support)]))
 AC_ARG_WITH(sdl,       AS_HELP_STRING([--without-sdl],[do not use SDL]))
 AC_ARG_WITH(udev,      AS_HELP_STRING([--without-udev],[do not use udev (plug and play support)]))
@@ -1672,18 +1669,6 @@ then
       [Rebuilding po files is not supported for out of tree builds.])
 fi
 
-dnl **** Check for PulseAudio ****
-if test "x$with_pulse" != "xno";
-then
-    WINE_PACKAGE_FLAGS(PULSE,[libpulse],,,,
-        [AC_CHECK_HEADER([pulse/pulseaudio.h],
-            [AC_CHECK_LIB(pulse, pa_stream_is_corked,[:],[PULSE_LIBS=""],[$PULSE_LIBS])],
-            [PULSE_LIBS=""])])
-fi
-WINE_NOTICE_WITH(pulse, [test -z "$PULSE_LIBS"],
-        [libpulse ${notice_platform}development files not found or too old, Pulse won't be supported.],
-        [enable_winepulse_drv])
-
 dnl **** Check for FFmpeg ****
 if test "x$with_ffmpeg" != "xno";
 then
@@ -1723,39 +1708,6 @@ fi
 WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes],
                  [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.],
                  [enable_winegstreamer])
-
-dnl **** Check for ALSA 1.x ****
-AC_SUBST(ALSA_LIBS,"")
-if test "x$with_alsa" != "xno"
-then
-    WINE_PACKAGE_FLAGS(ALSA,[alsa],[-lasound],,,
-        [AC_CHECK_LIB(asound,snd_pcm_hw_params_get_access_mask,[:],[ALSA_LIBS=""])])
-fi
-WINE_NOTICE_WITH(alsa,[test -z "$ALSA_LIBS"],
-                 [libasound ${notice_platform}development files not found, Alsa won't be supported.],
-                 [enable_winealsa_drv])
-
-dnl **** Check for OSSv4 ****
-if test "x$with_oss" != xno
-then
-    ac_save_CPPFLAGS="$CPPFLAGS"
-    if test -f /etc/oss.conf
-    then
-        . /etc/oss.conf
-    fi
-    ac_oss_incl="-I${OSSLIBDIR:-/usr/lib/oss}/include"
-    CPPFLAGS="$CPPFLAGS $ac_oss_incl"
-    AC_CHECK_HEADER([sys/soundcard.h],
-        [AC_CHECK_MEMBERS([oss_sysinfo.numaudioengines],
-            [AC_SUBST(OSS4_CFLAGS,"$ac_oss_incl")
-             AC_CHECK_LIB(ossaudio,_oss_ioctl,
-                 [AC_SUBST(OSS4_LIBS,"-lossaudio")])],,
-            [#include <sys/soundcard.h>])])
-    CPPFLAGS="$ac_save_CPPFLAGS"
-fi
-WINE_NOTICE_WITH(oss,[test "x$ac_cv_member_oss_sysinfo_numaudioengines" != xyes],
-                 [OSS sound system found but too old (OSSv4 needed), OSS won't be supported.],
-                 [enable_wineoss_drv])
 
 dnl **** Check for libudev ****
 if test "x$with_udev" != "xno"
@@ -1917,14 +1869,6 @@ fi
 WINE_NOTICE_WITH(netapi,[test "x$ac_cv_lib_soname_netapi" = "x"],
                  [libnetapi not found, Samba NetAPI won't be supported.],
                  [enable_netapi])
-
-
-dnl **** Check for any sound system ****
-if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv" = xnonononono -a \
-        "x$with_alsa$with_coreaudio$with_oss$with_pulse" != xnononono
-then
-    WINE_WARNING([No sound system was found. Windows applications will be silent.])
-fi
 
 dnl *** Check for Vulkan ***
 if test "x$with_vulkan" != "xno"
@@ -3365,11 +3309,9 @@ WINE_CONFIG_MAKEFILE(dlls/winegstreamer)
 WINE_CONFIG_MAKEFILE(dlls/winehid.sys)
 WINE_CONFIG_MAKEFILE(dlls/winemac.drv)
 WINE_CONFIG_MAKEFILE(dlls/winemapi)
-WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
 WINE_CONFIG_MAKEFILE(dlls/winepipewire.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16)
-WINE_CONFIG_MAKEFILE(dlls/winepulse.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineusb.sys)
 WINE_CONFIG_MAKEFILE(dlls/winevulkan)
 WINE_CONFIG_MAKEFILE(dlls/winewayland.drv)
