@@ -27,9 +27,15 @@
 #include "propsys.h"
 #include "mmdeviceapi.h"
 #include "endpointvolume.h"
-#include "functiondiscoverykeys_devpkey.h"
 
 #include "audiotray.h"
+
+/* PKEY_Device_FriendlyName lives in functiondiscoverykeys_devpkey.h, which this
+ * tree doesn't ship. It's the only key we need, so define it here. PROPERTYKEY
+ * is already provided by mmdeviceapi.h (it types OnPropertyValueChanged's arg).
+ * fmtid {a45c254e-df1c-4efd-8020-67d146a850e0}, pid 14. */
+static const PROPERTYKEY PKEY_Device_FriendlyName =
+    { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
