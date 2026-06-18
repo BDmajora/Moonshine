@@ -589,6 +589,14 @@ int PASCAL wWinMain(HINSTANCE hInstance, HINSTANCE prev, LPWSTR cmdline, int sho
                                        0, 0, 0, 0, NULL, NULL, hInstance, NULL);
     if (!Globals.hMainWnd) goto done;
 
+    /* Register the tray icon BEFORE touching the audio stack. The icon's
+     * presence must not depend on the default endpoint being reachable: if
+     * bind_endpoint() faults or blocks (PipeWire/WirePlumber not up yet, or any
+     * fault in the fresh audio path), we still want the speaker in the tray.
+     * refresh_tray() runs again after binding to show the real level. */
+    add_tray(&Globals);
+    refresh_tray(&Globals);
+
     if (SUCCEEDED(CoCreateInstance(&CLSID_MMDeviceEnumerator, NULL,
                                    CLSCTX_INPROC_SERVER, &IID_IMMDeviceEnumerator,
                                    (void **)&Globals.enumerator)))
@@ -596,10 +604,8 @@ int PASCAL wWinMain(HINSTANCE hInstance, HINSTANCE prev, LPWSTR cmdline, int sho
         IMMDeviceEnumerator_RegisterEndpointNotificationCallback(Globals.enumerator,
                                                                  &Globals.notif_iface);
         bind_endpoint(&Globals);
+        refresh_tray(&Globals);
     }
-
-    add_tray(&Globals);
-    refresh_tray(&Globals);
 
     while (GetMessageW(&msg, NULL, 0, 0))
     {
