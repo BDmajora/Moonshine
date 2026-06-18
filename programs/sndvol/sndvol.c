@@ -135,6 +135,11 @@ struct mixer_wnd
 
     HWND master_slider;
     HWND master_mute;
+
+    /* flyout custom-draw state (full mixer leaves these zeroed) */
+    float fly_level;
+    BOOL  fly_mute;
+    BOOL  dragging;
 };
 
 /* ------------------------------------------------------------------ */
@@ -552,8 +557,267 @@ int show_mixer(void)
 /* Flyout window                                                      */
 /* ------------------------------------------------------------------ */
 
-#define FLY_W 88
-#define FLY_H (MARGIN + SLIDER_H + 6 + MUTE_H + 6 + 24 + MARGIN)
+#define FLY_W            96
+#define FLY_PAD          10
+#define FLY_DEV          40      /* device-icon button (top) */
+#define FLY_SLIDER_TOP   (FLY_PAD + FLY_DEV + 10)
+#define FLY_SLIDER_H     176
+#define FLY_MUTE_H       38      /* mute speaker button (bottom) */
+#define FLY_LINK_H       22      /* "Mixer" link */
+#define FLY_H  (FLY_SLIDER_TOP + FLY_SLIDER_H + 12 + FLY_MUTE_H + FLY_LINK_H + FLY_PAD)
+#define FLY_RADIUS       8
+
+struct fly_layout
+{
+    RECT dev, mute, link;
+    int  cx, track_top, track_bottom;
+};
+
+static void fly_compute(struct fly_layout *L)
+{
+    int mt;
+
+    L->cx = FLY_W / 2;
+    SetRect(&L->dev, (FLY_W - FLY_DEV) / 2, FLY_PAD,
+            (FLY_W + FLY_DEV) / 2, FLY_PAD + FLY_DEV);
+    L->track_top    = FLY_SLIDER_TOP;
+    L->track_bottom = FLY_SLIDER_TOP + FLY_SLIDER_H;
+    mt = L->track_bottom + 12;
+    SetRect(&L->mute, (FLY_W - FLY_MUTE_H) / 2, mt,
+            (FLY_W + FLY_MUTE_H) / 2, mt + FLY_MUTE_H);
+    SetRect(&L->link, 0, L->mute.bottom + 4, FLY_W, L->mute.bottom + 4 + FLY_LINK_H);
+}
+
+static int fly_thumb_y(const struct fly_layout *L, float level)
+{
+    if (level < 0.f) level = 0.f;
+    if (level > 1.f) level = 1.f;
+    return L->track_bottom - (int)(level * (L->track_bottom - L->track_top) + 0.5f);
+}
+
+/* A Windows speaker glyph inside rc: sound waves unless muted, a red
+ * prohibition slash when muted. */
+static void draw_speaker_glyph(HDC dc, const RECT *rc, BOOL muted)
+{
+    int w = rc->right - rc->left, h = rc->bottom - rc->top;
+    int cy = rc->top + h / 2;
+    int bx = rc->left + w * 2 / 16;
+    int magR = rc->left + w * 5 / 16;
+    int coneR = rc->left + w * 9 / 16;
+    int magT = rc->top + h * 6 / 16, magB = rc->top + h * 10 / 16;
+    int coneT = rc->top + h * 3 / 16, coneB = rc->top + h * 13 / 16;
+    COLORREF body = RGB(64, 74, 92);
+    HBRUSH br = CreateSolidBrush(body);
+    HPEN pen = CreatePen(PS_SOLID, 1, body);
+    HGDIOBJ ob, op;
+    POINT cone[4];
+
+    op = SelectObject(dc, pen);
+    ob = SelectObject(dc, br);
+
+    Rectangle(dc, bx, magT, magR + 1, magB + 1);
+    cone[0].x = magR;  cone[0].y = magT;
+    cone[1].x = coneR; cone[1].y = coneT;
+    cone[2].x = coneR; cone[2].y = coneB;
+    cone[3].x = magR;  cone[3].y = magB;
+    Polygon(dc, cone, 4);
+
+    SelectObject(dc, GetStockObject(NULL_BRUSH));
+    DeleteObject(br);
+
+    if (muted)
+    {
+        HPEN rp = CreatePen(PS_SOLID, max(2, w / 12), RGB(208, 48, 48));
+        int x0 = coneR + w / 16;
+        int x1 = rc->right - w / 16;
+        int yy = rc->top + h * 3 / 16;
+        int yb = rc->bottom - h * 3 / 16;
+
+        SelectObject(dc, rp);
+        MoveToEx(dc, x0, yy, NULL); LineTo(dc, x1, yb);
+        MoveToEx(dc, x0, yb, NULL); LineTo(dc, x1, yy);
+        SelectObject(dc, pen);
+        DeleteObject(rp);
+    }
+    else
+    {
+        int i;
+        for (i = 0; i < 3; i++)
+        {
+            int x = coneR + w / 16 + i * (w * 2 / 16);
+            int d = h * (2 + i) / 16;
+            int e = w / 16 + 1;
+            MoveToEx(dc, x, cy - d, NULL);
+            LineTo(dc, x + e, cy);
+            LineTo(dc, x, cy + d);
+        }
+    }
+
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+}
+
+static void fly_paint(HWND hwnd, struct mixer_wnd *w)
+{
+    PAINTSTRUCT ps;
+    HDC hdc, dc;
+    HBITMAP bmp, oldbmp;
+    RECT rc, fill;
+    struct fly_layout L;
+    HBRUSH b;
+    HPEN border, oldpen;
+    HFONT oldfont;
+    int y, ty;
+
+    hdc = BeginPaint(hwnd, &ps);
+    GetClientRect(hwnd, &rc);
+    fly_compute(&L);
+
+    dc = CreateCompatibleDC(hdc);
+    bmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
+    oldbmp = SelectObject(dc, bmp);
+
+    /* panel: subtle vertical gradient, light Aero tint */
+    for (y = 0; y < rc.bottom; y++)
+    {
+        int t = MulDiv(y, 255, rc.bottom ? rc.bottom : 1);
+        int r  = 0xF6 - (0xF6 - 0xE6) * t / 255;
+        int g  = 0xF8 - (0xF8 - 0xEC) * t / 255;
+        int bl = 0xFB - (0xFB - 0xF2) * t / 255;
+        RECT ln = { 0, y, rc.right, y + 1 };
+        b = CreateSolidBrush(RGB(r, g, bl));
+        FillRect(dc, &ln, b);
+        DeleteObject(b);
+    }
+
+    /* outer border, matching the rounded window region */
+    border = CreatePen(PS_SOLID, 1, RGB(0x9A, 0xA4, 0xB2));
+    oldpen = SelectObject(dc, border);
+    SelectObject(dc, GetStockObject(NULL_BRUSH));
+    RoundRect(dc, 0, 0, rc.right, rc.bottom, FLY_RADIUS * 2, FLY_RADIUS * 2);
+    SelectObject(dc, oldpen);
+    DeleteObject(border);
+
+    /* device icon */
+    draw_speaker_glyph(dc, &L.dev, FALSE);
+
+    /* slider channel */
+    SetRect(&fill, L.cx - 2, L.track_top, L.cx + 3, L.track_bottom);
+    b = CreateSolidBrush(RGB(255, 255, 255));
+    FillRect(dc, &fill, b);
+    DeleteObject(b);
+    border = CreatePen(PS_SOLID, 1, RGB(0xB4, 0xBC, 0xC6));
+    oldpen = SelectObject(dc, border);
+    SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Rectangle(dc, L.cx - 2, L.track_top, L.cx + 3, L.track_bottom);
+    SelectObject(dc, oldpen);
+    DeleteObject(border);
+
+    /* blue fill below the thumb */
+    ty = fly_thumb_y(&L, w->fly_level);
+    for (y = ty; y < L.track_bottom - 1; y++)
+    {
+        int t  = (L.track_bottom - y) * 255 / (L.track_bottom - L.track_top);
+        int r  = 0x2E + (0x66 - 0x2E) * t / 255;
+        int g  = 0x8C + (0xBC - 0x8C) * t / 255;
+        int bl = 0xE0 + (0xF4 - 0xE0) * t / 255;
+        RECT ln = { L.cx - 1, y, L.cx + 2, y + 1 };
+        b = CreateSolidBrush(RGB(r, g, bl));
+        FillRect(dc, &ln, b);
+        DeleteObject(b);
+    }
+
+    /* thumb: light handle with a dark border */
+    {
+        RECT th = { L.cx - 11, ty - 6, L.cx + 12, ty + 7 };
+        int yy;
+        for (yy = th.top; yy < th.bottom; yy++)
+        {
+            int t = (yy - th.top) * 255 / (th.bottom - th.top);
+            int c = 0xFF - (0xFF - 0xDD) * t / 255;
+            RECT ln = { th.left, yy, th.right, yy + 1 };
+            b = CreateSolidBrush(RGB(c, c, c));
+            FillRect(dc, &ln, b);
+            DeleteObject(b);
+        }
+        border = CreatePen(PS_SOLID, 1, RGB(0x5E, 0x68, 0x76));
+        oldpen = SelectObject(dc, border);
+        SelectObject(dc, GetStockObject(NULL_BRUSH));
+        RoundRect(dc, th.left, th.top, th.right, th.bottom, 4, 4);
+        SelectObject(dc, oldpen);
+        DeleteObject(border);
+    }
+
+    /* mute button glyph */
+    draw_speaker_glyph(dc, &L.mute, w->fly_mute);
+
+    /* "Mixer" link */
+    {
+        HFONT f = CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+                              0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(0x21, 0x5C, 0xAF));
+        oldfont = SelectObject(dc, f ? f : (HFONT)GetStockObject(DEFAULT_GUI_FONT));
+        DrawTextW(dc, L"Mixer", -1, &L.link, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(dc, oldfont);
+        if (f) DeleteObject(f);
+    }
+
+    BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, oldbmp);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+    EndPaint(hwnd, &ps);
+}
+
+static void fly_apply_level(struct mixer_wnd *w, float level)
+{
+    if (level < 0.f) level = 0.f;
+    if (level > 1.f) level = 1.f;
+    w->fly_level = level;
+    if (w->master)
+        IAudioEndpointVolume_SetMasterVolumeLevelScalar(w->master, level, NULL);
+}
+
+static void fly_level_from_y(HWND hwnd, struct mixer_wnd *w, int py)
+{
+    struct fly_layout L;
+    float level;
+
+    fly_compute(&L);
+    level = (float)(L.track_bottom - py) / (float)(L.track_bottom - L.track_top);
+    fly_apply_level(w, level);
+    InvalidateRect(hwnd, NULL, FALSE);
+}
+
+static void launch_cmd(const WCHAR *cmdline)
+{
+    WCHAR buf[MAX_PATH];
+    STARTUPINFOW si = { .cb = sizeof(si) };
+    PROCESS_INFORMATION pi;
+
+    lstrcpynW(buf, cmdline, ARRAY_SIZE(buf));
+    if (CreateProcessW(NULL, buf, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+    {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+}
+
+static void launch_self_mixer(void)
+{
+    WCHAR path[MAX_PATH];
+    STARTUPINFOW si = { .cb = sizeof(si) };
+    PROCESS_INFORMATION pi;
+
+    GetModuleFileNameW(NULL, path, ARRAY_SIZE(path));
+    if (CreateProcessW(path, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+    {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+}
 
 static LRESULT CALLBACK flyout_wndproc(HWND hwnd, UINT msg,
                                        WPARAM wparam, LPARAM lparam)
@@ -564,8 +828,8 @@ static LRESULT CALLBACK flyout_wndproc(HWND hwnd, UINT msg,
     {
     case WM_CREATE:
     {
-        HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        HWND btn;
+        float scalar;
+        BOOL mute;
 
         w = calloc(1, sizeof(*w));
         if (!w) return -1;
@@ -575,59 +839,80 @@ static LRESULT CALLBACK flyout_wndproc(HWND hwnd, UINT msg,
         if (FAILED(bind_endpoint(w, hwnd)))
             return -1;
 
-        w->master_slider = make_slider(hwnd, IDC_MASTER_SLIDER,
-                                       (FLY_W - 36) / 2, MARGIN);
-
-        w->master_mute = CreateWindowW(L"BUTTON", L"Mute",
-            WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-            (FLY_W - 60) / 2, MARGIN + SLIDER_H + 6, 60, MUTE_H,
-            hwnd, (HMENU)IDC_MASTER_MUTE, instance, NULL);
-        SendMessageW(w->master_mute, WM_SETFONT, (WPARAM)font, TRUE);
-
-        btn = CreateWindowW(L"BUTTON", L"Mixer",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            (FLY_W - 64) / 2, MARGIN + SLIDER_H + 6 + MUTE_H + 6, 64, 24,
-            hwnd, (HMENU)IDC_OPEN_MIXER, instance, NULL);
-        SendMessageW(btn, WM_SETFONT, (WPARAM)font, TRUE);
-
-        update_values(w);
+        if (SUCCEEDED(IAudioEndpointVolume_GetMasterVolumeLevelScalar(w->master, &scalar)))
+            w->fly_level = scalar;
+        if (SUCCEEDED(IAudioEndpointVolume_GetMute(w->master, &mute)))
+            w->fly_mute = mute;
         return 0;
     }
 
-    case WM_VSCROLL:
-        if (w) handle_vscroll(w, (HWND)lparam);
+    case WM_ERASEBKGND:
+        return 1;   /* fully painted in WM_PAINT (double-buffered) */
+
+    case WM_PAINT:
+        if (w) fly_paint(hwnd, w);
         return 0;
 
-    case WM_COMMAND:
-        if (!w) return 0;
-        if (LOWORD(wparam) == IDC_OPEN_MIXER)
-        {
-            WCHAR path[MAX_PATH];
-            STARTUPINFOW si = { .cb = sizeof(si) };
-            PROCESS_INFORMATION pi;
+    case WM_LBUTTONDOWN:
+    {
+        POINT pt = { (short)LOWORD(lparam), (short)HIWORD(lparam) };
+        struct fly_layout L;
 
-            GetModuleFileNameW(NULL, path, ARRAY_SIZE(path));
-            if (CreateProcessW(path, NULL, NULL, NULL, FALSE, 0, NULL, NULL,
-                               &si, &pi))
-            {
-                CloseHandle(pi.hThread);
-                CloseHandle(pi.hProcess);
-            }
+        if (!w) return 0;
+        fly_compute(&L);
+
+        if (pt.x >= L.cx - 16 && pt.x <= L.cx + 16 &&
+            pt.y >= L.track_top - 8 && pt.y <= L.track_bottom + 8)
+        {
+            w->dragging = TRUE;
+            SetCapture(hwnd);
+            fly_level_from_y(hwnd, w, pt.y);
+            return 0;
+        }
+        if (PtInRect(&L.mute, pt))
+        {
+            w->fly_mute = !w->fly_mute;
+            if (w->master) IAudioEndpointVolume_SetMute(w->master, w->fly_mute, NULL);
+            InvalidateRect(hwnd, NULL, FALSE);
+            return 0;
+        }
+        if (PtInRect(&L.dev, pt))
+        {
+            launch_cmd(L"control.exe mmsys.cpl,,0");
+            return 0;
+        }
+        if (PtInRect(&L.link, pt))
+        {
+            launch_self_mixer();
             DestroyWindow(hwnd);
             return 0;
         }
-        if (HIWORD(wparam) == BN_CLICKED)
-            handle_mute(w, LOWORD(wparam), (HWND)lparam);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE:
+        if (w && w->dragging) fly_level_from_y(hwnd, w, (short)HIWORD(lparam));
+        return 0;
+
+    case WM_LBUTTONUP:
+        if (w && w->dragging) { w->dragging = FALSE; ReleaseCapture(); }
+        return 0;
+
+    case WM_MOUSEWHEEL:
+        if (w)
+        {
+            int d = GET_WHEEL_DELTA_WPARAM(wparam);
+            fly_apply_level(w, w->fly_level + (d > 0 ? 0.02f : -0.02f));
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
         return 0;
 
     case WM_APP_VOLCHANGED:
-        if (w && w->master_slider)
+        if (w)
         {
-            w->updating = TRUE;
-            slider_set(w->master_slider, (int)wparam / 100.0f);
-            SendMessageW(w->master_mute, BM_SETCHECK,
-                         lparam ? BST_CHECKED : BST_UNCHECKED, 0);
-            w->updating = FALSE;
+            w->fly_level = (int)wparam / 100.0f;
+            w->fly_mute  = lparam ? TRUE : FALSE;
+            if (!w->dragging) InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
 
@@ -655,27 +940,31 @@ int show_flyout(void)
     WNDCLASSW wc = {0};
     RECT work = {0, 0, 800, 600};
     HWND hwnd;
+    HRGN rgn;
     MSG msg;
     int x, y;
 
     wc.lpfnWndProc   = flyout_wndproc;
     wc.hInstance     = instance;
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.hbrBackground = NULL;
     wc.lpszClassName = L"YetiVolumeFlyout";
     RegisterClassW(&wc);
 
     /* Bottom-right of the work area — above the tray clock */
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    x = work.right - FLY_W - 8;
-    y = work.bottom - FLY_H - 8;
+    x = work.right - FLY_W - 6;
+    y = work.bottom - FLY_H - 6;
 
     hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         L"YetiVolumeFlyout", L"Volume",
-        WS_POPUP | WS_BORDER,
+        WS_POPUP,
         x, y, FLY_W, FLY_H,
         NULL, NULL, instance, NULL);
     if (!hwnd) return 1;
+
+    rgn = CreateRoundRectRgn(0, 0, FLY_W + 1, FLY_H + 1, FLY_RADIUS * 2, FLY_RADIUS * 2);
+    SetWindowRgn(hwnd, rgn, TRUE);   /* window owns rgn now */
 
     ShowWindow(hwnd, SW_SHOW);
     SetForegroundWindow(hwnd);
