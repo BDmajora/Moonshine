@@ -17,10 +17,16 @@
  * The two are independent by construction.
  */
 
+#include <math.h>
+
 #include <initguid.h>
 #include "sndvol_private.h"
 
 #include "devpkey.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(sndvol);
 
@@ -595,67 +601,132 @@ static int fly_thumb_y(const struct fly_layout *L, float level)
     return L->track_bottom - (int)(level * (L->track_bottom - L->track_top) + 0.5f);
 }
 
-/* A Windows speaker glyph inside rc: sound waves unless muted, a red
- * prohibition slash when muted. */
-static void draw_speaker_glyph(HDC dc, const RECT *rc, BOOL muted)
+/* One right-opening sound-wave arc (a ")" curve), centred at (cxc,cy).
+ * The pen is expected to be already selected into dc. */
+static void draw_wave_arc(HDC dc, int cxc, int cy, int r)
+{
+    POINT pts[13];
+    int i, n = ARRAY_SIZE(pts);
+    const double ha = 52.0 * M_PI / 180.0;   /* half sweep */
+
+    for (i = 0; i < n; i++)
+    {
+        double a = -ha + (2.0 * ha) * i / (n - 1);   /* y is down */
+        pts[i].x = cxc + (int)(r * cos(a) + 0.5);
+        pts[i].y = cy  + (int)(r * sin(a) + 0.5);
+    }
+    Polyline(dc, pts, n);
+}
+
+/* The Windows 7 volume speaker: a blue cone with curved sound waves whose
+ * count tracks the level (none at 0, up to three near full); a red
+ * prohibition badge instead of waves when muted. Used for the mute button. */
+static void draw_volume_speaker(HDC dc, const RECT *rc, float level, BOOL muted)
 {
     int w = rc->right - rc->left, h = rc->bottom - rc->top;
     int cy = rc->top + h / 2;
-    int bx = rc->left + w * 2 / 16;
-    int magR = rc->left + w * 5 / 16;
+    int boxL = rc->left + w * 3 / 16;
+    int boxR = rc->left + w * 6 / 16;
+    int boxT = cy - h * 2 / 16, boxB = cy + h * 2 / 16;
     int coneR = rc->left + w * 9 / 16;
-    int magT = rc->top + h * 6 / 16, magB = rc->top + h * 10 / 16;
-    int coneT = rc->top + h * 3 / 16, coneB = rc->top + h * 13 / 16;
-    COLORREF body = RGB(64, 74, 92);
-    HBRUSH br = CreateSolidBrush(body);
-    HPEN pen = CreatePen(PS_SOLID, 1, body);
+    int coneT = cy - h * 5 / 16, coneB = cy + h * 5 / 16;
+    COLORREF blue = RGB(28, 78, 140);
+    HBRUSH br = CreateSolidBrush(blue);
+    HPEN pen = CreatePen(PS_SOLID, max(1, w / 22), blue);
     HGDIOBJ ob, op;
     POINT cone[4];
 
     op = SelectObject(dc, pen);
     ob = SelectObject(dc, br);
 
-    Rectangle(dc, bx, magT, magR + 1, magB + 1);
-    cone[0].x = magR;  cone[0].y = magT;
+    /* cone (magnet box + flared trapezoid) */
+    Rectangle(dc, boxL, boxT, boxR + 1, boxB + 1);
+    cone[0].x = boxR;  cone[0].y = boxT;
     cone[1].x = coneR; cone[1].y = coneT;
     cone[2].x = coneR; cone[2].y = coneB;
-    cone[3].x = magR;  cone[3].y = magB;
+    cone[3].x = boxR;  cone[3].y = boxB;
     Polygon(dc, cone, 4);
 
-    SelectObject(dc, GetStockObject(NULL_BRUSH));
+    SelectObject(dc, GetStockObject(NULL_BRUSH));   /* arcs/badge stroked only */
     DeleteObject(br);
 
     if (muted)
     {
-        HPEN rp = CreatePen(PS_SOLID, max(2, w / 12), RGB(208, 48, 48));
-        int x0 = coneR + w / 16;
-        int x1 = rc->right - w / 16;
-        int yy = rc->top + h * 3 / 16;
-        int yb = rc->bottom - h * 3 / 16;
+        HPEN rp = CreatePen(PS_SOLID, max(2, w / 14), RGB(206, 42, 42));
+        int rr  = h * 4 / 16;
+        int rcx = coneR + w * 4 / 16;
+        int off = (int)(rr * 0.70);
 
         SelectObject(dc, rp);
-        MoveToEx(dc, x0, yy, NULL); LineTo(dc, x1, yb);
-        MoveToEx(dc, x0, yb, NULL); LineTo(dc, x1, yy);
+        Ellipse(dc, rcx - rr, cy - rr, rcx + rr, cy + rr);
+        MoveToEx(dc, rcx - off, cy + off, NULL);
+        LineTo(dc, rcx + off, cy - off);
         SelectObject(dc, pen);
         DeleteObject(rp);
     }
     else
     {
-        int i;
-        for (i = 0; i < 3; i++)
-        {
-            int x = coneR + w / 16 + i * (w * 2 / 16);
-            int d = h * (2 + i) / 16;
-            int e = w / 16 + 1;
-            MoveToEx(dc, x, cy - d, NULL);
-            LineTo(dc, x + e, cy);
-            LineTo(dc, x, cy + d);
-        }
+        int waves = 0, i;
+        if (level > 0.001f) waves = 1;
+        if (level > 0.34f)  waves = 2;
+        if (level > 0.67f)  waves = 3;
+        for (i = 1; i <= waves; i++)
+            draw_wave_arc(dc, coneR, cy, h * (1 + 2 * i) / 16);
     }
 
     SelectObject(dc, ob);
     SelectObject(dc, op);
     DeleteObject(pen);
+}
+
+/* The playback-device icon shown at the top of the flyout: a small silver
+ * speaker cabinet with a woofer + tweeter. Deliberately distinct from the
+ * blue volume glyph below, matching Windows 7's device thumbnail. */
+static void draw_device_icon(HDC dc, const RECT *rc)
+{
+    int w = rc->right - rc->left, h = rc->bottom - rc->top;
+    RECT cab = { rc->left + w * 3 / 16, rc->top + h / 16,
+                 rc->right - w * 3 / 16, rc->bottom - h / 16 };
+    int cabw = cab.right - cab.left, cabh = cab.bottom - cab.top;
+    int cx = (cab.left + cab.right) / 2;
+    int wy = cab.top + cabh * 62 / 100;
+    int r  = cabw * 30 / 100;
+    int ty = cab.top + cabh * 22 / 100;
+    int tr = cabw * 10 / 100;
+    HPEN border, op;
+    HBRUSH b;
+    HGDIOBJ ob;
+    int y;
+
+    /* cabinet: light-to-darker silver vertical gradient */
+    for (y = cab.top; y < cab.bottom; y++)
+    {
+        int t = (y - cab.top) * 255 / (cabh ? cabh : 1);
+        int c = 0xE8 - (0xE8 - 0xB6) * t / 255;
+        RECT ln = { cab.left, y, cab.right, y + 1 };
+        b = CreateSolidBrush(RGB(c, c, c));
+        FillRect(dc, &ln, b);
+        DeleteObject(b);
+    }
+
+    border = CreatePen(PS_SOLID, 1, RGB(0x6E, 0x72, 0x78));
+    op = SelectObject(dc, border);
+    SelectObject(dc, GetStockObject(NULL_BRUSH));
+    RoundRect(dc, cab.left, cab.top, cab.right, cab.bottom, 4, 4);
+
+    /* woofer: outer ring + filled cone */
+    Ellipse(dc, cx - r, wy - r, cx + r, wy + r);
+    b = CreateSolidBrush(RGB(0x9C, 0xA0, 0xA6));
+    ob = SelectObject(dc, b);
+    Ellipse(dc, cx - r / 2, wy - r / 2, cx + r / 2, wy + r / 2);
+    SelectObject(dc, ob);
+    DeleteObject(b);
+
+    /* tweeter */
+    Ellipse(dc, cx - tr, ty - tr, cx + tr, ty + tr);
+
+    SelectObject(dc, op);
+    DeleteObject(border);
 }
 
 static void fly_paint(HWND hwnd, struct mixer_wnd *w)
@@ -700,7 +771,7 @@ static void fly_paint(HWND hwnd, struct mixer_wnd *w)
     DeleteObject(border);
 
     /* device icon */
-    draw_speaker_glyph(dc, &L.dev, FALSE);
+    draw_device_icon(dc, &L.dev);
 
     /* slider channel */
     SetRect(&fill, L.cx - 2, L.track_top, L.cx + 3, L.track_bottom);
@@ -750,7 +821,7 @@ static void fly_paint(HWND hwnd, struct mixer_wnd *w)
     }
 
     /* mute button glyph */
-    draw_speaker_glyph(dc, &L.mute, w->fly_mute);
+    draw_volume_speaker(dc, &L.mute, w->fly_level, w->fly_mute);
 
     /* "Mixer" link */
     {
