@@ -31,6 +31,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -132,12 +133,52 @@ struct drm_win_data *win_data_from_wid(uint32_t wid)
 /***********************************************************************
  *           role classification
  *
- * M1: every managed window is NORMAL.  M3 maps Shell_TrayWnd→TASKBAR,
- * Progman/desktop→DESKTOP, menus→MENU, tooltips→TOOLTIP (SPEC §10), which is
- * what retires the frostedglass is_taskbar()/is_desktop() heuristics.
+ * The shell places windows by explicit role, never by geometry.  We read the
+ * real Win32 window *class* (and the process name) and map it to a CL role —
+ * this is the DESIGN.md §3.3 win that retires frostedglass's geometry-based
+ * is_taskbar()/is_desktop() guessing (fg_taskbar.c measured width/height
+ * because the Wayland driver only exposed the process name as app_id; we have
+ * the class directly).
  */
+static void window_class_name(HWND hwnd, WCHAR *buf, ULONG count)
+{
+    UNICODE_STRING name = { .Buffer = buf, .MaximumLength = (count - 1) * sizeof(WCHAR) };
+    INT len = NtUserGetClassName(hwnd, FALSE, &name);
+    if (len < 0 || (ULONG)len >= count) len = 0;
+    buf[len] = 0;
+}
+
 static enum cl_role role_for_window(HWND hwnd)
 {
+    /* Unix-side code: WCHAR is 2-byte but L"" literals are 4-byte wchar_t, so
+     * class names are spelled as explicit WCHAR arrays (standard Wine idiom). */
+    static const WCHAR shell_trayW[] =
+        {'S','h','e','l','l','_','T','r','a','y','W','n','d',0};
+    static const WCHAR yetios_deskW[] =
+        {'Y','e','t','i','O','S','D','e','s','k','t','o','p',0};
+    static const WCHAR progmanW[] = {'P','r','o','g','m','a','n',0};
+    static const WCHAR menuW[] = {'#','3','2','7','6','8',0};
+    static const WCHAR tooltipW[] =
+        {'t','o','o','l','t','i','p','s','_','c','l','a','s','s','3','2',0};
+    static const WCHAR traynotifyW[] =
+        {'T','r','a','y','N','o','t','i','f','y','W','n','d',0};
+    static const WCHAR notifyoverflowW[] =
+        {'N','o','t','i','f','y','I','c','o','n','O','v','e','r','f','l','o','w',
+         'W','i','n','d','o','w',0};
+    WCHAR cls[64];
+
+    window_class_name(hwnd, cls, ARRAY_SIZE(cls));
+
+    if (!wcscmp(cls, shell_trayW))                        return CL_ROLE_TASKBAR;
+    if (!wcscmp(cls, yetios_deskW) || !wcscmp(cls, progmanW)) return CL_ROLE_DESKTOP;
+    if (!wcscmp(cls, menuW))                              return CL_ROLE_MENU;
+    if (!wcscmp(cls, tooltipW))                           return CL_ROLE_TOOLTIP;
+    if (!wcscmp(cls, traynotifyW) || !wcscmp(cls, notifyoverflowW)) return CL_ROLE_TRAY;
+
+    /* desktop.exe (the wallpaper painter) is its own process; tag all of its
+     * windows DESKTOP as a fallback when the class isn't recognized. */
+    if (process_name && !strcmp(process_name, "desktop.exe")) return CL_ROLE_DESKTOP;
+
     return CL_ROLE_NORMAL;
 }
 
