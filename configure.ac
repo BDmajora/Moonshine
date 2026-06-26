@@ -59,6 +59,7 @@ AC_ARG_WITH(unwind,    AS_HELP_STRING([--without-unwind],[do not use the libunwi
 AC_ARG_WITH(usb,       AS_HELP_STRING([--without-usb],[do not use the libusb library]))
 AC_ARG_WITH(v4l2,      AS_HELP_STRING([--without-v4l2],[do not use v4l2 (video capture)]))
 AC_ARG_WITH(vulkan,    AS_HELP_STRING([--without-vulkan],[do not use Vulkan]))
+AC_ARG_WITH(drm,       AS_HELP_STRING([--without-drm],[do not build the CrystallineLattice (winedrm) driver]))
 AC_ARG_WITH(wayland,   AS_HELP_STRING([--without-wayland],[do not build the Wayland driver]))
 AC_ARG_WITH(xcomposite,AS_HELP_STRING([--without-xcomposite],[do not use the Xcomposite extension]),
             [if test "x$withval" = "xno"; then ac_cv_header_X11_extensions_Xcomposite_h=no; fi])
@@ -1404,6 +1405,12 @@ else
     X_LIBS=""
 fi
 
+dnl --with-drm selects the CrystallineLattice (winedrm) driver as the Wine
+dnl display path and, unless Wayland was explicitly requested, disables the
+dnl Wayland driver — they are alternative Wine backends (glacier provides the
+dnl Wayland *frontend* separately, for native Linux apps).
+if test "x$with_drm" = "xyes" -a "x$with_wayland" = "x"; then with_wayland=no; fi
+
 if test "x$with_wayland" != "xno"
 then
     WINE_PACKAGE_FLAGS(WAYLAND_CLIENT,[wayland-client],,,,
@@ -1434,7 +1441,12 @@ WINE_NOTICE_WITH(wayland, [test -z "$WAYLAND_CLIENT_LIBS" -o -z "$WAYLAND_SCANNE
                  [Wayland ${notice_platform}development files not found, the Wayland driver won't be supported.],
                  [enable_winewayland_drv])
 
-if test "$enable_wineandroid_drv$enable_winemac_drv$enable_winewayland_drv" = "nonono"
+dnl **** CrystallineLattice (winedrm) driver — Path β, no external deps ****
+dnl Built by default; --without-drm disables it. It counts as a graphics driver
+dnl below, so an X-less, Wayland-less target (YetiOS) is not forced onto X11.
+if test "x$with_drm" = "xno"; then enable_winedrm_drv=no; fi
+
+if test "$enable_winedrm_drv" = "no" -a "$enable_wineandroid_drv$enable_winemac_drv$enable_winewayland_drv" = "nonono"
 then
     WINE_ERROR_WITH(x,[test "x$X_LIBS" = "x"],
 [X ${notice_platform}development files not found. Wine will be built

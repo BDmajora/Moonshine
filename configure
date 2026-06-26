@@ -957,6 +957,7 @@ with_unwind
 with_usb
 with_v4l2
 with_vulkan
+with_drm
 with_wayland
 with_xcomposite
 with_xcursor
@@ -16089,6 +16090,10 @@ else
     X_LIBS=""
 fi
 
+# --with-drm selects the CrystallineLattice driver and disables the Wayland
+# driver unless Wayland was explicitly requested (the two are alternative Wine
+# display backends).
+if test "x$with_drm" = "xyes" -a "x$with_wayland" = "x"; then with_wayland=no; fi
 if test "x$with_wayland" != "xno"
 then
     rm -f conftest.err
@@ -16509,7 +16514,8 @@ esac
 enable_winewayland_drv=${enable_winewayland_drv:-no}
 fi
 
-if test "$enable_wineandroid_drv$enable_winemac_drv$enable_winewayland_drv" = "nonono"
+if test "x$with_drm" = "xno"; then enable_winedrm_drv=no; fi
+if test "$enable_winedrm_drv" = "no" -a "$enable_wineandroid_drv$enable_winemac_drv$enable_winewayland_drv" = "nonono"
 then
     if test "x$X_LIBS" = "x"
 then :
