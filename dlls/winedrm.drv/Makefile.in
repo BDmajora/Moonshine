@@ -1,0 +1,18 @@
+MODULE = winedrm.drv
+UNIXLIB = winedrm.so
+UNIX_LIBS = -lwin32u $(PTHREAD_LIBS) -lm
+IMPORTS = user32 win32u
+
+SOURCES = \
+	display.c \
+	dllmain.c \
+	event.c \
+	keyboard.c \
+	lattice.c \
+	pointer.c \
+	protocol.c \
+	shmbuffer.c \
+	version.rc \
+	window.c \
+	window_surface.c \
+	winedrm_main.c
