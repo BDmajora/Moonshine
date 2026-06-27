@@ -53,6 +53,7 @@ enum winedrm_window_message
 {
     WM_WINEDRM_CONFIGURE = WM_WINE_FIRST_DRIVER_MSG,
     WM_WINEDRM_SET_FOREGROUND,
+    WM_WINEDRM_DISPLAYCHANGE,   /* glacier changed resolution; refit the desktop */
 };
 
 /**********************************************************************

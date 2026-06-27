@@ -16,6 +16,48 @@
 static HBRUSH g_bg_brush = NULL;
 
 /* ------------------------------------------------------------------ */
+/* Wallpaper colour                                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Read the desktop background colour from the standard Windows location,
+ * HKCU\Control Panel\Colors "Background" (a space-separated "R G B" string,
+ * the same key the Display control panel / theme writes). Defaults to a light
+ * blue if unset. Parsed by hand to avoid a CRT scanf dependency.
+ */
+static COLORREF desktop_bg_color(void)
+{
+    int rgb[3] = { 58, 110, 165 };   /* light blue default */
+    HKEY key;
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Control Panel\\Colors", 0,
+                      KEY_QUERY_VALUE, &key) == ERROR_SUCCESS)
+    {
+        WCHAR buf[64];
+        DWORD len = sizeof(buf), type = 0;
+        if (RegQueryValueExW(key, L"Background", NULL, &type, (BYTE *)buf,
+                             &len) == ERROR_SUCCESS && type == REG_SZ)
+        {
+            int idx = 0, val = 0;
+            BOOL have = FALSE;
+            const WCHAR *p;
+            for (p = buf; ; p++)
+            {
+                if (*p >= '0' && *p <= '9') { val = val * 10 + (*p - '0'); have = TRUE; }
+                else
+                {
+                    if (have && idx < 3) rgb[idx++] = val;
+                    val = 0; have = FALSE;
+                    if (!*p) break;
+                }
+            }
+        }
+        RegCloseKey(key);
+    }
+    return RGB(rgb[0], rgb[1], rgb[2]);
+}
+
+/* ------------------------------------------------------------------ */
 /* Window procedure                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -95,8 +137,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     (void)lpCmdLine;
     (void)nCmdShow;
 
-    g_bg_brush = CreateSolidBrush(
-        RGB(DESKTOP_BG_R, DESKTOP_BG_G, DESKTOP_BG_B));
+    g_bg_brush = CreateSolidBrush(desktop_bg_color());
 
     wc.cbSize        = sizeof(wc);
     wc.lpfnWndProc   = desktop_wndproc;

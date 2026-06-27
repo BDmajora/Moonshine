@@ -85,6 +85,17 @@ static void handle_close(const struct cl_close *close_msg)
     NtUserPostMessage(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
 }
 
+static void handle_screen(const struct cl_screen *s)
+{
+    process_lattice.screen_w = s->w;
+    process_lattice.screen_h = s->h;
+    TRACE("virtual screen → %ux%u\n", s->w, s->h);
+    /* Apply on a GUI thread: it re-reads display devices and resizes the Wine
+     * virtual desktop, which broadcasts WM_DISPLAYCHANGE so the taskbar and
+     * wallpaper refit. */
+    NtUserPostMessage(NtUserGetDesktopWindow(), WM_WINEDRM_DISPLAYCHANGE, 0, 0);
+}
+
 static void handle_input(const struct cl_input *in)
 {
     struct drm_win_data *data;
@@ -147,6 +158,10 @@ void winedrm_dispatch_events(void)
         case CL_INPUT:
             if (n >= (ssize_t)sizeof(struct cl_input))
                 handle_input((struct cl_input *)buf);
+            break;
+        case CL_SCREEN:
+            if (n >= (ssize_t)sizeof(struct cl_screen))
+                handle_screen((struct cl_screen *)buf);
             break;
         default:
             WARN("unexpected message type %u\n", *(uint32_t *)buf);

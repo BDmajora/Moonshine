@@ -521,6 +521,23 @@ static void winedrm_apply_configure(HWND hwnd)
     NtUserSetRawWindowPos(hwnd, rect, flags, FALSE);
 }
 
+/* After glacier changes resolution, win32u still holds the virtual screen at
+ * its old size, so SM_CXSCREEN never moves and no WM_DISPLAYCHANGE is broadcast.
+ * Refresh the display devices and resize the virtual desktop to the new size;
+ * that broadcast is what makes the taskbar and wallpaper refit (the Windows
+ * behaviour). A no-op when the size already matches. (Cf. winewayland.drv.) */
+static void winedrm_resize_virtual_desktop(void)
+{
+    DEVMODEW dm = { .dmSize = sizeof(dm) };
+    int w = process_lattice.screen_w, h = process_lattice.screen_h;
+
+    if (w <= 0 || h <= 0) return;
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
+    dm.dmPelsWidth = w;
+    dm.dmPelsHeight = h;
+    NtUserChangeDisplaySettings(NULL, &dm, NULL, 0, NULL);
+}
+
 LRESULT WINEDRM_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg)
@@ -530,6 +547,10 @@ LRESULT WINEDRM_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_WINEDRM_SET_FOREGROUND:
         NtUserSetForegroundWindowInternal(hwnd);
+        return 0;
+    case WM_WINEDRM_DISPLAYCHANGE:
+        NtUserCallNoParam(NtUserCallNoParam_DisplayModeChanged);
+        winedrm_resize_virtual_desktop();
         return 0;
     default:
         FIXME("got driver window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp);
