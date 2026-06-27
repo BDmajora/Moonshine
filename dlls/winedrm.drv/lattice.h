@@ -67,6 +67,7 @@ struct lattice
     BOOL            initialized;
     int             fd;             /* the SOCK_SEQPACKET socket to glacier */
     uint32_t        version;        /* negotiated from CL_WELCOME */
+    uint32_t        reconnect_token;/* from CL_WELCOME; presented to reclaim windows */
     int             screen_w;       /* virtual-screen size from CL_WELCOME */
     int             screen_h;
     LONG            next_wid;       /* monotonic client-scoped window-id source */
@@ -97,6 +98,11 @@ struct drm_win_data
     BOOL                created;    /* CL_CREATE_WINDOW sent for this wid */
     BOOL                managed;    /* server-managed toplevel */
     struct drm_shm_buffer *contents;/* last buffer committed for this window */
+    /* The geometry glacier last knows about (from a create, a CL_CONFIGURE we
+     * applied, or a CL_SET_GEOMETRY we sent). WindowPosChanged compares against
+     * it so a Wine-initiated move/resize is forwarded, but the echo from
+     * applying a server CONFIGURE is not. */
+    RECT                last_server_rect;
     /* Last server-decided geometry (CL_CONFIGURE), applied on the window's own
      * thread in WINEDRM_WindowMessage(WM_WINEDRM_CONFIGURE). */
     struct { int x, y, w, h; BOOL valid; } pending;
@@ -109,6 +115,14 @@ struct drm_win_data
 BOOL lattice_process_init(void);
 int  lattice_send(const void *msg, size_t len, const int *fds, int nfds);
 uint32_t lattice_alloc_wid(void);
+
+/* Re-establish the link after glacier drops/restarts, presenting our token to
+ * reclaim windows. Retries briefly; FALSE if glacier stays gone. Event thread. */
+BOOL lattice_reconnect(void);
+
+/* Re-announce every live window (CREATE + TITLE + COMMIT) to a freshly
+ * (re)connected server. Implemented in window.c; called after lattice_reconnect. */
+void winedrm_replay_windows(void);
 
 /**********************************************************************
  *          Event loop (event.c)
@@ -136,6 +150,7 @@ BOOL winedrm_commit(HWND hwnd, struct drm_shm_buffer *buffer);
 void winedrm_motion(HWND hwnd, int local_x, int local_y);
 void winedrm_button(HWND hwnd, unsigned int button, BOOL pressed);
 void winedrm_key(HWND hwnd, uint32_t keysym, BOOL pressed);
+void WINEDRM_SetCursor(HWND hwnd, HCURSOR hcursor);
 
 /**********************************************************************
  *          SHM buffers (shmbuffer.c)

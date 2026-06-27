@@ -319,8 +319,15 @@ static BOOL ensure_cl_window(struct drm_win_data *data)
     lattice_send(&st, sizeof(st), NULL, 0);
 
     data->created = TRUE;
+    data->last_server_rect = data->rects.window;
     TRACE("hwnd=%p wid=%u role=%u %dx%d\n", data->hwnd, data->wid, data->role, w, h);
     return TRUE;
+}
+
+static BOOL rect_eq(const RECT *a, const RECT *b)
+{
+    return a->left == b->left && a->top == b->top &&
+           a->right == b->right && a->bottom == b->bottom;
 }
 
 /* Caller must hold win_data_mutex. */
@@ -376,6 +383,52 @@ BOOL winedrm_commit(HWND hwnd, struct drm_shm_buffer *buffer)
     return ret;
 }
 
+/* Re-announce every live window to a freshly (re)connected glacier: CREATE,
+ * SET_TITLE, then re-COMMIT the last contents. If the server preserved the
+ * window across the reconnect, the CREATE is a harmless duplicate (ignored) and
+ * the COMMIT refreshes it; otherwise this re-creates it. Runs on the event
+ * thread, called from winedrm_unix_read_events after lattice_reconnect(). */
+void winedrm_replay_windows(void)
+{
+    struct drm_win_data *data;
+
+    pthread_mutex_lock(&win_data_mutex);
+    RB_FOR_EACH_ENTRY(data, &win_data_rb, struct drm_win_data, entry)
+    {
+        struct cl_create_window cw;
+        struct cl_set_title st;
+
+        if (!data->created)
+            continue;
+
+        cw = (struct cl_create_window){
+            .type = CL_CREATE_WINDOW, .wid = data->wid, .role = data->role,
+            .x = data->rects.window.left, .y = data->rects.window.top,
+            .w = data->rects.window.right - data->rects.window.left,
+            .h = data->rects.window.bottom - data->rects.window.top,
+        };
+        lattice_send(&cw, sizeof(cw), NULL, 0);
+
+        st = (struct cl_set_title){ .type = CL_SET_TITLE, .wid = data->wid };
+        window_text_utf8(data->hwnd, st.title, sizeof(st.title));
+        lattice_send(&st, sizeof(st), NULL, 0);
+
+        if (data->contents)
+        {
+            struct drm_shm_buffer *b = data->contents;
+            struct cl_commit cm = {
+                .type = CL_COMMIT, .wid = data->wid,
+                .buffer = {
+                    .kind = CL_BUF_SHM, .width = b->width, .height = b->height,
+                    .stride = b->stride, .format = CL_FORMAT_XRGB8888,
+                },
+            };
+            lattice_send(&cm, sizeof(cm), &b->fd, 1);
+        }
+    }
+    pthread_mutex_unlock(&win_data_mutex);
+}
+
 /* ---- USER driver entry points ----------------------------------------- */
 
 void WINEDRM_DestroyWindow(HWND hwnd)
@@ -428,6 +481,20 @@ void WINEDRM_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
      * are (re)created lazily on the first content commit (winedrm_commit). */
     if ((!surface || !NtUserIsWindowVisible(hwnd)) && data->created)
         destroy_cl_window(data);
+    else if (data->created && !rect_eq(&data->last_server_rect, &new_rects->window))
+    {
+        /* Wine moved/resized the window itself (title-bar drag, dialog centring,
+         * SetWindowPos, …). Tell glacier so it tracks on screen. The echo from
+         * applying a server CL_CONFIGURE is filtered by last_server_rect. */
+        struct cl_set_geometry sg = {
+            .type = CL_SET_GEOMETRY, .wid = data->wid,
+            .x = new_rects->window.left, .y = new_rects->window.top,
+            .w = new_rects->window.right - new_rects->window.left,
+            .h = new_rects->window.bottom - new_rects->window.top,
+        };
+        lattice_send(&sg, sizeof(sg), NULL, 0);
+        data->last_server_rect = new_rects->window;
+    }
 
     win_data_release(data);
 }
@@ -444,6 +511,9 @@ static void winedrm_apply_configure(HWND hwnd)
     SetRect(&rect, data->pending.x, data->pending.y,
             data->pending.x + data->pending.w, data->pending.y + data->pending.h);
     data->pending.valid = FALSE;
+    /* Record the geometry we're about to apply so the WindowPosChanged it
+     * triggers isn't bounced back to glacier as a client-initiated move. */
+    if (valid) data->last_server_rect = rect;
     win_data_release(data);
 
     if (!valid || IsRectEmpty(&rect)) return;

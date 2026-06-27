@@ -34,7 +34,7 @@
 /* The vendored protocol must stay in lockstep with glacier's copy; a server
  * version bump that isn't mirrored here should fail the build, not silently
  * mis-handshake.  See SPEC.md §13.3. */
-C_ASSERT(CL_VERSION == 1u);
+C_ASSERT(CL_VERSION == 2u);
 
 char *process_name = NULL;
 
@@ -48,8 +48,9 @@ static const struct user_driver_funcs winedrm_funcs =
     .pWindowPosChanging    = WINEDRM_WindowPosChanging,
     .pWindowPosChanged     = WINEDRM_WindowPosChanged,
     .pDesktopWindowProc    = WINEDRM_DesktopWindowProc,
-    /* Cursor/keyboard/GL fall back to win32u's nulldrv stubs for M1.  Cursor
-     * stays a no-op by design: glacier owns the KMS cursor plane (SPEC §11). */
+    /* glacier owns the cursor plane/position, but follows the focused app's
+     * shape (I-beam, resize arrows) — SetCursor forwards the ARGB to it. */
+    .pSetCursor            = WINEDRM_SetCursor,
 };
 
 static void winedrm_init_process_name(void)
@@ -97,8 +98,16 @@ err:
 
 static NTSTATUS winedrm_unix_read_events(void *arg)
 {
-    winedrm_dispatch_events();
-    /* Only returns on a fatal error (e.g. the link to glacier dropped). */
+    /* Crash resilience (Phase 6): if glacier drops/restarts, reconnect and
+     * re-announce our windows rather than killing the Wine process. Only give
+     * up — and let DllMain terminate us — if glacier stays gone. */
+    for (;;)
+    {
+        winedrm_dispatch_events();      /* returns when the link drops */
+        if (!lattice_reconnect())
+            break;
+        winedrm_replay_windows();       /* reclaim/re-create our windows */
+    }
     return STATUS_UNSUCCESSFUL;
 }
 

@@ -28,6 +28,7 @@
 #include "config.h"
 
 #include <errno.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -78,62 +79,119 @@ static int lattice_connect(void)
 }
 
 /***********************************************************************
- *           lattice_process_init
+ *           lattice_handshake
  *
- * Connect and complete the v0 handshake.  Returns FALSE if glacier is not
- * reachable, which makes DllMain fail the load so Wine falls back to the next
- * graphics driver in the list.
+ * Send CL_HELLO (carrying reconnect_token, 0 for a fresh session) on `fd` and
+ * read CL_WELCOME, recording the negotiated version / screen / token. The
+ * welcome parse is size-tolerant so a v1 server (no token) still works.
  */
-BOOL lattice_process_init(void)
+static BOOL lattice_handshake(int fd, uint32_t reconnect_token)
 {
     struct cl_hello hello = {
         .type = CL_HELLO, .magic = CL_MAGIC,
         .version = CL_VERSION, .min_version = CL_MIN_VERSION,
+        .reconnect_token = reconnect_token,
     };
     char buf[256];
     int fds[CL_MAX_FDS], nfds = 0;
-    struct cl_welcome *welcome;
+    struct cl_welcome *w;
     ssize_t n;
-    int fd;
-
-    if ((fd = lattice_connect()) < 0) return FALSE;
 
     if (cl_send(fd, &hello, sizeof(hello), NULL, 0) != 0)
     {
-        ERR("failed to send CL_HELLO: %s\n", strerror(errno));
-        close(fd);
+        WARN("failed to send CL_HELLO: %s\n", strerror(errno));
         return FALSE;
     }
 
     n = cl_recv(fd, buf, sizeof(buf), fds, &nfds);
     while (nfds-- > 0) close(fds[nfds]); /* welcome carries no fds; be safe */
-    if (n < (ssize_t)sizeof(struct cl_welcome) ||
+    if (n < (ssize_t)offsetof(struct cl_welcome, reconnect_token) ||
         ((struct cl_welcome *)buf)->type != CL_WELCOME)
     {
-        ERR("CL_WELCOME handshake failed (n=%zd)\n", n);
-        close(fd);
+        WARN("CL_WELCOME handshake failed (n=%zd)\n", n);
         return FALSE;
     }
 
-    welcome = (struct cl_welcome *)buf;
-    if (welcome->magic != CL_MAGIC || welcome->version < CL_MIN_VERSION)
+    w = (struct cl_welcome *)buf;
+    if (w->magic != CL_MAGIC || w->version < CL_MIN_VERSION)
     {
-        ERR("incompatible glacier: magic %#x version %u (need >= %u)\n",
-            welcome->magic, welcome->version, CL_MIN_VERSION);
+        WARN("incompatible glacier: magic %#x version %u (need >= %u)\n",
+             w->magic, w->version, CL_MIN_VERSION);
+        return FALSE;
+    }
+
+    process_lattice.version = w->version;
+    process_lattice.screen_w = w->screen_w;
+    process_lattice.screen_h = w->screen_h;
+    if (n >= (ssize_t)sizeof(struct cl_welcome))
+        process_lattice.reconnect_token = w->reconnect_token;
+    return TRUE;
+}
+
+/***********************************************************************
+ *           lattice_process_init
+ *
+ * Connect and complete a fresh handshake.  Returns FALSE if glacier is not
+ * reachable, which makes DllMain fail the load so Wine falls back to the next
+ * graphics driver in the list.
+ */
+BOOL lattice_process_init(void)
+{
+    int fd = lattice_connect();
+    if (fd < 0) return FALSE;
+
+    if (!lattice_handshake(fd, 0 /* fresh */))
+    {
         close(fd);
         return FALSE;
     }
 
     process_lattice.fd = fd;
-    process_lattice.version = welcome->version;
-    process_lattice.screen_w = welcome->screen_w;
-    process_lattice.screen_h = welcome->screen_h;
     process_lattice.next_wid = 0;
     process_lattice.initialized = TRUE;
 
-    TRACE("welcome: v%u, virtual screen %dx%d\n", welcome->version,
-          process_lattice.screen_w, process_lattice.screen_h);
+    TRACE("welcome: v%u, virtual screen %dx%d, token %u\n",
+          process_lattice.version, process_lattice.screen_w,
+          process_lattice.screen_h, process_lattice.reconnect_token);
     return TRUE;
+}
+
+/***********************************************************************
+ *           lattice_reconnect
+ *
+ * Re-establish the link after glacier drops/restarts, presenting our token so
+ * the server hands back the windows it preserved (Phase 6 crash resilience).
+ * Retries for a few seconds; FALSE if glacier stays gone (the caller then lets
+ * the process terminate).  Runs on the event thread.
+ */
+BOOL lattice_reconnect(void)
+{
+    int fd;
+
+    /* Stop window threads from sending on the dead fd while we reconnect. */
+    pthread_mutex_lock(&process_lattice.send_mutex);
+    if (process_lattice.fd >= 0) close(process_lattice.fd);
+    process_lattice.fd = -1;
+    pthread_mutex_unlock(&process_lattice.send_mutex);
+
+    for (int tries = 0; tries < 50; tries++)   /* ~5s of 100ms backoff */
+    {
+        if ((fd = lattice_connect()) >= 0 &&
+            lattice_handshake(fd, process_lattice.reconnect_token))
+        {
+            pthread_mutex_lock(&process_lattice.send_mutex);
+            process_lattice.fd = fd;
+            pthread_mutex_unlock(&process_lattice.send_mutex);
+            TRACE("reconnected to glacier (fd %d, token %u)\n",
+                  fd, process_lattice.reconnect_token);
+            return TRUE;
+        }
+        if (fd >= 0) close(fd);
+        usleep(100000);
+    }
+
+    ERR("could not reconnect to glacier; giving up\n");
+    return FALSE;
 }
 
 /***********************************************************************
